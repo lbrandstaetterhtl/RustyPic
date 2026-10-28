@@ -1,7 +1,7 @@
 ﻿use std::collections::HashMap;
 use std::process::exit;
 use crate::models::{Input, Command};
-use crate::operate::grayscale;
+use crate::operate::{invert, grayscale};
 
 pub fn base(input_str: String) -> Result<Option<String>, String> {
     let parts: Vec<String> = shell_words::split(input_str.trim())
@@ -22,21 +22,88 @@ pub fn base(input_str: String) -> Result<Option<String>, String> {
     }
 }
 
+pub fn get_values(name: String, args_values: HashMap<String, String>) -> Result<Vec<String>, String> {
+    let command_result = Command::get(name.as_str());
+
+    let command: Command =  match command_result {
+        Ok(c) => {c},
+        Err(e) => {return Err(e)}
+    };
+
+    let mut values: Vec<String> = Vec::new();
+    for (arg, has_value) in command.args.unwrap() {
+        if args_values.contains_key(arg) {
+            if has_value {
+                let value_option = args_values.get(arg);
+                match value_option {
+                    Some(v) => { values.push(v.to_string()); },
+                    None => { return Err(format!("No value for arg '{}'", arg)) }
+                }
+            } else {
+                values.push("1".to_string());
+            }
+        }
+        else if !args_values.contains_key(arg) && !has_value{
+            values.push("0".to_string());
+        }
+    }
+
+    Ok(values)
+}
+
 pub fn handle_grayscale(args_values: HashMap<String, String>) -> Result<Option<String>, String> {
-    let source_option = args_values.get("--source");
-    let output_option = args_values.get("--output");
+    let values_result = get_values("grayscale".to_string(), args_values);
 
-    let source: String = match source_option {
-        Some(s) => {s.to_string()},
-        None => {return Err("Value for '--source' not found".to_string())},
+    let values = match values_result {
+        Ok(v) => v,
+        Err(e) => {return Err(e)}
     };
 
-    let output = match output_option {
-        Some(o) => {o.to_string()},
-        None => {return Err("Value for '--output' not found".to_string())},
-    };
+    if values.len() == 0 || values.len() < 2 || values.len() > 2 {
+        return Err("Invalid grayscale arguments".to_string());
+    }
+
+    let source = values[0].clone();
+    let output = values[1].clone();
 
     grayscale(source, output)
+}
+
+pub fn handle_invert(args_values: HashMap<String, String>) -> Result<Option<String>, String> {
+    let values_result = get_values("invert".to_string(), args_values);
+
+    let values = match values_result {
+        Ok(v) => v,
+        Err(e) => return Err(e)
+    };
+
+    if values.len() == 0 || values.len() < 2 || values.len() > 2 {
+        return Err("Invalid grayscale arguments".to_string());
+    }
+
+    let source = values[0].clone();
+    let output = values[1].clone();
+    invert(source, output)
+}
+
+pub fn handle_color(args_values: HashMap<String, String>) -> Result<Option<String>, String> {
+    let values_result = get_values("color".to_string(), args_values);
+
+    let values = match values_result {
+        Ok(v) => v,
+        Err(e) => {return Err(e)}
+    };
+
+    if values.len() == 0 || values.len() < 2 || values.len() > 2 {
+        return Err("Invalid grayscale arguments".to_string());
+    }
+
+    let source = values[0].clone();
+    let output = values[1].clone();
+    let all_as_integer = values[2].clone().parse::<i32>().map_err(|_| "Invalid grayscale arguments")?;
+    let all = if all_as_integer == 1 { true } else { false };
+
+    panic!("not implemented");
 }
 
 pub fn handle_exit(_: HashMap<String, String>) -> Result<Option<String>, String> {
@@ -69,7 +136,7 @@ impl Input {
                             if arg == input_parts[i] {
                                 if has_value {
                                     if i+1 >= input_parts.len() {
-                                        return Err(format!("Missing value for argument '{}'", arg).to_string());
+                                        return Err(format!("Value for '{}' not found", arg).to_string());
                                     }
 
                                     args_values.insert(arg.to_string(), input_parts[i+1].trim_matches('"').to_string());
