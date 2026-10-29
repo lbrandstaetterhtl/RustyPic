@@ -95,7 +95,7 @@ pub fn handle_color(args_values: HashMap<String, String>) -> Result<Option<Strin
     };
 
     if values.len() == 0 || values.len() < 2 || values.len() > 2 {
-        return Err("Invalid grayscale arguments".to_string());
+        return Err("Invalid color arguments".to_string());
     }
 
     let source = values[0].clone();
