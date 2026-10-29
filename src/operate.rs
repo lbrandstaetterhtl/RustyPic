@@ -73,6 +73,18 @@ pub fn test_ocr() -> Result<Option<String>, String> {
             }
         }
         seen += pred.len();
+
+        if batch % 200 == 0 {
+            print!("  batch {batch:4} | predicted: ");
+            for i in 0..10 {
+                print!("{}/{} ", pred[i], cnn.vocab.decode(pred[i]));
+            }
+            print!("| expected: ");
+            for i in 0..10 {
+                print!("{}/{} ", truth[i], cnn.vocab.decode(truth[i]));
+            }
+            print!("\n");
+        }
     }
 
     println!("test accuracy: {:.2}%  ({} von {})",

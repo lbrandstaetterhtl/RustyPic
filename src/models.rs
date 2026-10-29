@@ -69,7 +69,7 @@ impl AppConfig {
 
     pub fn device(&self) -> Result<Device, String> {
         match self.device.as_str() {
-            "CPU" => Ok(Device::Cpu),
+            "cpu" => Ok(Device::Cpu),
             "cuda" => Device::new_cuda(0).map_err(|e| e.to_string()),
             "metal" => Device::new_metal(0).map_err(|e| e.to_string()),
             other => Err(format!("unknown device: {}", other)),
@@ -81,7 +81,9 @@ impl AppConfig {
 
         fs::create_dir_all(&model_dir).map_err(|e| format!("failed to create model dir: {}", e))?;
 
-        let config = AppConfig {model_path: model_dir, epochs: 10, batch_size: 64, device: "CPU".to_string(), learning_rate: 0.001};
+        let model_path = model_dir + ".json";
+
+        let config = AppConfig {model_path, epochs: 10, batch_size: 64, device: "cpu".to_string(), learning_rate: 0.001};
 
         match config.save() {
             Ok(_) => Ok(config),
@@ -303,7 +305,7 @@ impl Command {
         let exit = Command::new("exit", "", None, handle::handle_exit);
         let invert = Command::new("invert", "", Some(vec![("--source", true), ("--output", true)]), handle::handle_invert);
         let color = Command::new("color", "", Some(vec![("--source", true), ("--output", true), ("--all", false), ("-r", true), ("-g", true), ("-b", true)]), handle::handle_color);
-        let ocr = Command::new("ocr", "", Some(vec![("--train", false), ("--resolve", true)]), handle::handle_ocr);
+        let ocr = Command::new("ocr", "", Some(vec![("--train", false), ("--test", false), ("--resolve", true)]), handle::handle_ocr);
 
         let mut commands = Vec::new();
 
