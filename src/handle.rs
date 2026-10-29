@@ -1,7 +1,7 @@
 ﻿use std::collections::HashMap;
 use std::process::exit;
 use crate::models::{Input, Command};
-use crate::operate::{invert, grayscale};
+use crate::operate::{invert, grayscale, resolve, train_ocr, test_ocr};
 
 pub fn base(input_str: String) -> Result<Option<String>, String> {
     let parts: Vec<String> = shell_words::split(input_str.trim())
@@ -104,6 +104,24 @@ pub fn handle_color(args_values: HashMap<String, String>) -> Result<Option<Strin
     let all = if all_as_integer == 1 { true } else { false };
 
     panic!("not implemented");
+}
+
+pub fn handle_ocr(args_values: HashMap<String, String>) -> Result<Option<String>, String> {
+    let values = match get_values("ocr".to_string(), args_values.clone()) {
+        Ok(v) => v,
+        Err(e) => {return Err(e)}
+    };
+
+    if args_values.contains_key("--train") {
+        train_ocr()
+    }
+    else if args_values.contains_key("--test") {
+        test_ocr()
+    }
+    else {
+        let source = values[0].clone();
+        resolve(source)
+    }
 }
 
 pub fn handle_exit(_: HashMap<String, String>) -> Result<Option<String>, String> {

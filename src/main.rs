@@ -1,11 +1,17 @@
 use std::io::Write;
+use std::path::Path;
 use crate::handle::base;
+use crate::models::AppConfig;
 
 mod models;
 mod handle;
 mod operate;
+mod emnist;
 
 fn main() {
+    let config = AppConfig::load().expect("failed to load config");
+    config.save().expect("failed to save config");
+
     loop {
         print!(">: ");
         std::io::stdout().flush().unwrap();

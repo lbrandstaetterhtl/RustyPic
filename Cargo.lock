@@ -9,6 +9,7 @@ dependencies = [
  "candle-core",
  "candle-datasets",
  "candle-nn",
+ "flate2",
  "image",
  "serde",
  "serde_json",
