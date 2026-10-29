@@ -78,7 +78,7 @@ pub fn handle_invert(args_values: HashMap<String, String>) -> Result<Option<Stri
     };
 
     if values.len() == 0 || values.len() < 2 || values.len() > 2 {
-        return Err("Invalid grayscale arguments".to_string());
+        return Err("Invalid invert arguments".to_string());
     }
 
     let source = values[0].clone();
@@ -113,15 +113,17 @@ pub fn handle_ocr(args_values: HashMap<String, String>) -> Result<Option<String>
     };
 
     if args_values.contains_key("--train") {
-        train_ocr()
+        return train_ocr()
     }
     else if args_values.contains_key("--test") {
-        test_ocr()
+        return  test_ocr()
     }
-    else {
+    else if args_values.contains_key("--resolve") {
         let source = values[0].clone();
-        resolve(source)
+        return  resolve(source)
     }
+
+    Err("Invalid ocr arguments".to_string())
 }
 
 pub fn handle_exit(_: HashMap<String, String>) -> Result<Option<String>, String> {
