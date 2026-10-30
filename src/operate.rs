@@ -94,7 +94,7 @@ pub fn test_ocr() -> Result<Option<String>, String> {
     let mut pairs: Vec<_> = confusion.into_iter().collect();
     pairs.sort_by(|a, b| b.1.cmp(&a.1));
 
-    println!("\nHäufigste Verwechslungen:");
+    println!("\nMost fails:");
     for ((truth, pred), count) in pairs.iter().take(15) {
         println!("  '{}' als '{}'  {}x",
                  chars[*truth as usize], chars[*pred as usize], count);
@@ -220,23 +220,17 @@ pub fn train_ocr() -> Result<Option<String>, String> {
     Ok(Some("Training finished and model saved successfully".to_string()))
 }
 
-fn load_image(source_path: String, device: &Device) -> Result<Tensor, String> {
-    let img = match image::open(source_path) {
-        Ok(img) => img.to_luma8(),
-        Err(e) => return Err(e.to_string())
-    };
+fn load_image(path: String, device: &Device) -> Result<Tensor, String> {
+    let img = image::open(path)
+        .map_err(|e| e.to_string())?
+        .resize_exact(28, 28, image::imageops::FilterType::Triangle)
+        .to_luma8();
 
-    let (width, height) = img.dimensions();
+    let pixels: Vec<f32> = img.into_raw().iter()
+        .map(|&p| p as f32 )
+        .collect();
 
-    let raw_image = img.into_raw();
-    let pixels = raw_image.iter().map(|&pixel| pixel as f32 / 255.0).collect::<Vec<_>>();
-
-    let tensor = match Tensor::from_vec(pixels, (1, 1, height as usize, width as usize), device) {
-        Ok(tensor) => tensor,
-        Err(e) => return Err(e.to_string())
-    };
-
-    Ok(tensor)
+    Tensor::from_vec(pixels, (1, 1, 28, 28), device).map_err(|e| e.to_string())
 }
 
 fn load_data() -> Result<Emnist, String> {

@@ -115,11 +115,13 @@ pub fn handle_ocr(args_values: HashMap<String, String>) -> Result<Option<String>
     if args_values.contains_key("--train") {
         return train_ocr()
     }
-    else if args_values.contains_key("--test") {
+
+    if args_values.contains_key("--test") {
         return  test_ocr()
     }
-    else if args_values.contains_key("--resolve") {
-        let source = values[0].clone();
+
+    if args_values.contains_key("--resolve") && !args_values.contains_key("--test") && !args_values.contains_key("--train") {
+        let source = values[2].clone();
         return  resolve(source)
     }
 
