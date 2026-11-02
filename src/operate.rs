@@ -2,9 +2,11 @@
 use std::path::Path;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::Optimizer;
-use crate::models::{AppConfig, CNN};
+use image::{DynamicImage, GenericImageView, GrayImage, Luma};
+use crate::models::{AppConfig, BBox, CNN};
 use crate::emnist;
 use crate::emnist::Emnist;
+use imageproc::region_labelling::{connected_components, Connectivity};
 
 pub fn grayscale(source_path: String, output_path: String) -> Result<Option<String>, String>
 {
@@ -117,20 +119,21 @@ pub fn resolve(source_path: String) -> Result<Option<String>, String> {
         Err(error) => return Err(error.to_string())
     };
 
-    let img = match load_image(source_path, &device) {
-        Ok(img) => img,
+    let tensors = match load_and_split(source_path.as_str(), device) {
+        Ok(tensors) => tensors,
         Err(error) => return Err(error.to_string())
     };
 
-    let tensor_result = match cnn.forward(img) {
-        Ok(tensor_result) => tensor_result,
-        Err(error) => return Err(error.to_string())
-    };
 
-    let pred = tensor_result.argmax(candle_core::D::Minus1).map_err(|error| error.to_string())?.to_vec1::<u32>().map_err(|error| error.to_string())?[0];
-    let c = cnn.vocab.decode(pred);
+    let mut full_prediction: String = String::new();
 
-    Ok(Some(c.to_string()))
+    for tensor in tensors.iter() {
+        let pred = tensor.argmax(candle_core::D::Minus1).map_err(|error| error.to_string())?.to_vec1::<u32>().map_err(|error| error.to_string())?[0];
+        let c = cnn.vocab.decode(pred);
+        full_prediction.push(c);
+    }
+
+    Ok(Some(full_prediction))
 }
 
 pub fn train_ocr() -> Result<Option<String>, String> {
@@ -220,17 +223,33 @@ pub fn train_ocr() -> Result<Option<String>, String> {
     Ok(Some("Training finished and model saved successfully".to_string()))
 }
 
-fn load_image(path: String, device: &Device) -> Result<Tensor, String> {
+fn load_and_split(path: &str, device: Device) -> Result<Vec<Tensor>, String> {
+    let img = load_image(path.to_string()).map_err(|error| error.to_string())?;
+
+    let letters = image_clean_and_split_up(img);
+
+    let mut tensors: Vec<Tensor> = Vec::new();
+    //DEBUG save
+    let counter = 0;
+    for letter in letters {
+        letter.save(path.to_string() + "_" + counter.to_string().as_str()).map_err(|error| error.to_string())?;
+
+        let pixel: Vec<f32> = letter.into_raw().iter()
+            .map(|&p| p as f32 / 255.0).collect();
+
+        let t = Tensor::from_vec(pixel, (1, 1, 28, 28), &device).map_err(|error| error.to_string())?;
+
+        tensors.push(t);
+    }
+
+    Ok(tensors)
+}
+
+fn load_image(path: String) -> Result<GrayImage, String> {
     let img = image::open(path)
         .map_err(|e| e.to_string())?
-        .resize_exact(28, 28, image::imageops::FilterType::Triangle)
         .to_luma8();
-
-    let pixels: Vec<f32> = img.into_raw().iter()
-        .map(|&p| p as f32 )
-        .collect();
-
-    Tensor::from_vec(pixels, (1, 1, 28, 28), device).map_err(|e| e.to_string())
+    Ok(img)
 }
 
 fn load_data() -> Result<Emnist, String> {
@@ -246,4 +265,73 @@ fn load_data() -> Result<Emnist, String> {
     };
 
     Ok(data)
+}
+
+
+fn image_clean_and_split_up(image: GrayImage) -> Vec<GrayImage> {
+    let mut black_and_white = image;
+
+    let threshold: f32 = 0.65;
+
+    for pixel in black_and_white.pixels_mut() {
+        let luma = pixel.0[0];
+
+        let brightness = luma as f32 / 255.0;
+
+        if brightness > threshold {
+            *pixel = Luma([0]);
+        }
+        else {
+            *pixel = Luma([255]);
+        }
+    }
+
+    let letters = image_split_up(black_and_white);
+
+    letters
+}
+
+fn image_split_up(image: GrayImage) -> Vec<GrayImage> {
+    let labels = connected_components(&image, Connectivity::Eight, Luma([255])).to_vec();
+
+    let min_pixels = 20;
+    let bboxes: Vec<BBox> = get_bounding_boxes(&[labels])
+        .into_iter()
+        .filter(|b| b.width() * b.height() >= min_pixels)
+        .collect();
+
+    let mut result: Vec<GrayImage> = Vec::new();
+
+    for bbox in bboxes {
+        result.push(crop_letter(&image, &bbox));
+    }
+
+    result
+}
+
+fn get_bounding_boxes(labels: &[Vec<u32>]) -> Vec<BBox> {
+    let mut boxes: HashMap<u32, BBox> = HashMap::new();
+
+    for (y, row) in labels.iter().enumerate() {
+        for (x, &label) in row.iter().enumerate() {
+            if label == 0 {continue;}
+
+            let x = x as u32;
+            let y = y as u32;
+
+            boxes.entry(label).and_modify(|b| {
+                b.min_x = b.min_x.min(x);
+                b.max_x = b.max_x.max(x);
+                b.min_y = b.min_y.min(y);
+                b.max_y = b.max_y.max(y);
+            }).or_insert(BBox {min_x: x, min_y: y, max_x: x, max_y: y});
+        }
+    }
+
+    let mut result: Vec<BBox> = boxes.into_values().collect();
+    result.sort_by_key(|b| b.min_x);
+    result
+}
+fn crop_letter(src: &GrayImage, b: &BBox) -> GrayImage {
+    src.view(b.min_x, b.min_y, b.width(), b.height()).to_image()
 }
