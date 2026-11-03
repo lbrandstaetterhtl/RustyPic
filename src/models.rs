@@ -52,13 +52,25 @@ pub struct Vocab {
 
 #[derive(Debug, Clone, Copy)]
 pub struct BBox {
-    pub min_x: u32, pub min_y: u32,
-    pub max_x: u32, pub max_y: u32,
+    pub min_x: u32,
+    pub min_y: u32,
+    pub max_x: u32, // inklusiv
+    pub max_y: u32, // inklusiv
+    pub area: u32,  // Anzahl Vordergrundpixel
 }
 
 impl BBox {
-    pub fn width(&self)  -> u32 { self.max_x - self.min_x + 1 }
-    pub fn height(&self) -> u32 { self.max_y - self.min_y + 1 }
+    pub fn width(&self) -> u32 {
+        self.max_x - self.min_x + 1
+    }
+
+    pub fn height(&self) -> u32 {
+        self.max_y - self.min_y + 1
+    }
+
+    pub fn fill(&self) -> f32 {
+        self.area as f32 / (self.width() * self.height()) as f32
+    }
 }
 
 
@@ -189,7 +201,7 @@ impl CNN {
         let config = Conv2dConfig {padding: 0, stride: 1, ..Default::default()};
         let mut conv_list: Vec<Conv2d> = Vec::new();
         let mut in_ch: usize = 1;
-        let mut out_ch: usize = 32;
+        let mut out_ch: usize = 16;
         let mut conv_counter: u32 = 0;
         let mut size = input_size;
 
@@ -227,7 +239,7 @@ impl CNN {
         Ok(Self { var_map, conv_list, pool_after, fc, vocab })
     }
 
-    pub fn forward(&self, tensor: Tensor) -> Result<Tensor, String> {
+    pub fn forward(&self, tensor: &Tensor) -> Result<Tensor, String> {
         let mut step: Tensor = tensor.clone();
         let mut conv_counter: u32 = 0;
 
@@ -318,6 +330,7 @@ impl Command {
         let invert = Command::new("invert", "", Some(vec![("--source", true), ("--output", true)]), handle::handle_invert);
         let color = Command::new("color", "", Some(vec![("--source", true), ("--output", true), ("--all", false), ("-r", true), ("-g", true), ("-b", true)]), handle::handle_color);
         let ocr = Command::new("ocr", "", Some(vec![("--train", false), ("--test", false), ("--resolve", true)]), handle::handle_ocr);
+        let test = Command::new("test-load", "", Some(vec![("--source", true)]), handle::handle_test);
 
         let mut commands = Vec::new();
 
@@ -326,6 +339,7 @@ impl Command {
         commands.push(color);
         commands.push(ocr);
         commands.push(exit);
+        commands.push(test);
 
         commands
     }

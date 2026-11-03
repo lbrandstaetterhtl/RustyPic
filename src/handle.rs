@@ -1,7 +1,7 @@
 ﻿use std::collections::HashMap;
 use std::process::exit;
-use crate::models::{Input, Command};
-use crate::operate::{invert, grayscale, resolve, train_ocr, test_ocr};
+use crate::models::{Input, Command, AppConfig};
+use crate::operate::{invert, grayscale, resolve, train_ocr, test_ocr, load_and_split};
 
 pub fn base(input_str: String) -> Result<Option<String>, String> {
     let parts: Vec<String> = shell_words::split(input_str.trim())
@@ -130,6 +130,17 @@ pub fn handle_ocr(args_values: HashMap<String, String>) -> Result<Option<String>
 
 pub fn handle_exit(_: HashMap<String, String>) -> Result<Option<String>, String> {
     exit(0);
+}
+
+pub fn handle_test(args_values: HashMap<String, String>) -> Result<Option<String>, String> {
+    let config = AppConfig::load().map_err(|e| format!("{}", e))?;
+    let values = get_values("test-load".to_string(), args_values).map_err(|e| format!("{}", e))?;
+
+    let source = values[0].clone();
+
+    let result = load_and_split(source.as_str(), config.device().map_err(|e| e.to_string())?).map_err(|e| format!("{}", e))?;
+
+    Ok(Some("test".to_string()))
 }
 
 impl Input {

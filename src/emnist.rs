@@ -1,20 +1,32 @@
-// EMNIST ByClass Loader
+// EMNIST ByClass Loader + Captcha-Stil-Daten
 //
 // Dataset: Royc30ne/emnist-byclass (HuggingFace)
 //   62 Klassen: 0-9, A-Z, a-z
 //   Train: 697.932   Test: 116.323
 //
-// Die vier .gz-Dateien einmal von Hand herunterladen und in einen Ordner legen:
+// Die vier EMNIST-.gz-Dateien einmal von Hand herunterladen und in einen Ordner legen:
 //   https://huggingface.co/datasets/Royc30ne/emnist-byclass/resolve/main/emnist-byclass-train-images-idx3-ubyte.gz
 //   https://huggingface.co/datasets/Royc30ne/emnist-byclass/resolve/main/emnist-byclass-train-labels-idx1-ubyte.gz
 //   https://huggingface.co/datasets/Royc30ne/emnist-byclass/resolve/main/emnist-byclass-test-images-idx3-ubyte.gz
 //   https://huggingface.co/datasets/Royc30ne/emnist-byclass/resolve/main/emnist-byclass-test-labels-idx1-ubyte.gz
 //
+// Captcha-Stil-Daten (gleiches Format, gleiche Klassen, ebenfalls transponiert)
+// in denselben Ordner legen:
+//   captcha-byclass-train-images-idx3-ubyte.gz
+//   captcha-byclass-train-labels-idx1-ubyte.gz
+//   captcha-byclass-test-images-idx3-ubyte.gz
+//   captcha-byclass-test-labels-idx1-ubyte.gz
+//
+// Welche Daten geladen werden, bestimmt `Source`:
+//   Source::Emnist    nur EMNIST (Verhalten wie bisher, `load()` macht genau das)
+//   Source::Captcha   nur Captcha-Daten
+//   Source::Combined  beide zusammen, gemischt
+//
 // Dependencies in Cargo.toml:
 //   flate2 = "1"
 //
 // WICHTIG zur Speichernutzung: Pixel werden als u8 gehalten (1 Byte statt 4).
-// Train sind damit ~547 MB statt ~2,2 GB. Die f32-Tensors entstehen erst
+// EMNIST-Train sind damit ~547 MB statt ~2,2 GB. Die f32-Tensors entstehen erst
 // pro Batch in batch_images(). Deswegen gibt es hier KEINEN Tensor mit allen
 // Bildern - der würde den Speicher sprengen.
 
@@ -32,13 +44,48 @@ pub const PIXELS_PER_IMAGE: usize = IMAGE_SIZE * IMAGE_SIZE;
 /// Index 0-9 = Ziffern, 10-35 = Großbuchstaben, 36-61 = Kleinbuchstaben.
 pub const VOCAB: &str = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
-const FILE_TRAIN_IMAGES: &str = "emnist-byclass-train-images-idx3-ubyte.gz";
-const FILE_TRAIN_LABELS: &str = "emnist-byclass-train-labels-idx1-ubyte.gz";
-const FILE_TEST_IMAGES: &str = "emnist-byclass-test-images-idx3-ubyte.gz";
-const FILE_TEST_LABELS: &str = "emnist-byclass-test-labels-idx1-ubyte.gz";
-
 const MAGIC_IMAGES: u32 = 0x0000_0803;
 const MAGIC_LABELS: u32 = 0x0000_0801;
+
+/// Seed für das Mischen bei Source::Combined (fest -> reproduzierbar)
+const SHUFFLE_SEED: u64 = 0x5EED_CAFE_1234_5678;
+
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Source {
+    Emnist,
+    Captcha,
+    Combined,
+}
+
+struct DatasetFiles {
+    label: &'static str,
+    train_images: &'static str,
+    train_labels: &'static str,
+    test_images: &'static str,
+    test_labels: &'static str,
+    /// Download-Basis für die Fehlermeldung, None = lokal erzeugte Daten
+    download_base: Option<&'static str>,
+}
+
+const EMNIST_FILES: DatasetFiles = DatasetFiles {
+    label: "emnist",
+    train_images: "emnist-byclass-train-images-idx3-ubyte.gz",
+    train_labels: "emnist-byclass-train-labels-idx1-ubyte.gz",
+    test_images: "emnist-byclass-test-images-idx3-ubyte.gz",
+    test_labels: "emnist-byclass-test-labels-idx1-ubyte.gz",
+    download_base: Some(DOWNLOAD_BASE),
+};
+
+const CAPTCHA_FILES: DatasetFiles = DatasetFiles {
+    label: "captcha",
+    train_images: "captcha-byclass-train-images-idx3-ubyte.gz",
+    train_labels: "captcha-byclass-train-labels-idx1-ubyte.gz",
+    test_images: "captcha-byclass-test-images-idx3-ubyte.gz",
+    test_labels: "captcha-byclass-test-labels-idx1-ubyte.gz",
+    download_base: None,
+};
 
 // ---------------------------------------------------------------------------
 
@@ -122,52 +169,147 @@ impl Split {
 
         Ok(())
     }
+
+    /// Hängt einen zweiten Split hinten an.
+    fn append(&mut self, mut other: Split) {
+        self.pixels.append(&mut other.pixels);
+        self.labels.append(&mut other.labels);
+        self.count += other.count;
+    }
+
+    /// Fisher-Yates: mischt Bilder und Labels gemeinsam.
+    /// Nötig bei Combined, sonst kämen alle Captcha-Bilder am Ende und
+    /// die letzten Batches jeder Epoche wären reine Captcha-Batches.
+    fn shuffle(&mut self, seed: u64) {
+        let mut rng = XorShift64::new(seed);
+
+        for i in (1..self.count).rev() {
+            let j = (rng.next() % (i as u64 + 1)) as usize;
+            if i != j {
+                self.swap_images(i, j);
+            }
+        }
+    }
+
+    fn swap_images(&mut self, a: usize, b: usize) {
+        let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+        let (left, right) = self.pixels.split_at_mut(hi * PIXELS_PER_IMAGE);
+        left[lo * PIXELS_PER_IMAGE..(lo + 1) * PIXELS_PER_IMAGE]
+            .swap_with_slice(&mut right[..PIXELS_PER_IMAGE]);
+        self.labels.swap(a, b);
+    }
+
+    fn truncate(&mut self, limit: usize) {
+        if limit < self.count {
+            self.count = limit;
+            self.pixels.truncate(limit * PIXELS_PER_IMAGE);
+            self.labels.truncate(limit);
+        }
+    }
+}
+
+/// Minimaler RNG, damit keine rand-Dependency nötig ist.
+struct XorShift64 {
+    state: u64,
+}
+
+impl XorShift64 {
+    fn new(seed: u64) -> Self {
+        Self { state: seed.max(1) }
+    }
+
+    fn next(&mut self) -> u64 {
+        let mut x = self.state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.state = x;
+        x
+    }
 }
 
 // ---------------------------------------------------------------------------
 
 /// Lädt EMNIST ByClass aus einem Ordner, der die vier .gz-Dateien enthält.
+/// Unverändertes Verhalten wie bisher, entspricht `load_from(dir, Source::Emnist, max_rows)`.
 ///
 /// `max_rows`: optionale Obergrenze pro Split, um mit weniger Daten zu testen.
 ///             None = alles.
 pub fn load(dir: &Path, max_rows: Option<usize>) -> Result<Emnist, String> {
-    let train_images_path = require_file(dir, FILE_TRAIN_IMAGES)?;
-    let train_labels_path = require_file(dir, FILE_TRAIN_LABELS)?;
-    let test_images_path = require_file(dir, FILE_TEST_IMAGES)?;
-    let test_labels_path = require_file(dir, FILE_TEST_LABELS)?;
+    load_from(dir, Source::Emnist, max_rows)
+}
 
-    let train = load_split("train", &train_images_path, &train_labels_path, max_rows)?;
-    let test = load_split("test", &test_images_path, &test_labels_path, max_rows)?;
+/// Lädt EMNIST, Captcha-Daten oder beides gemischt aus `dir`.
+///
+/// `max_rows`: optionale Obergrenze pro Split (bei Combined nach dem Mischen,
+///             d. h. die Teilmenge enthält beide Quellen anteilig).
+pub fn load_from(dir: &Path, source: Source, max_rows: Option<usize>) -> Result<Emnist, String> {
+    let (mut train, mut test) = match source {
+        Source::Emnist => load_dataset(dir, &EMNIST_FILES)?,
+        Source::Captcha => load_dataset(dir, &CAPTCHA_FILES)?,
+        Source::Combined => {
+            let (mut train, mut test) = load_dataset(dir, &EMNIST_FILES)?;
+            let (captcha_train, captcha_test) = load_dataset(dir, &CAPTCHA_FILES)?;
+
+            train.append(captcha_train);
+            test.append(captcha_test);
+
+            train.shuffle(SHUFFLE_SEED);
+            test.shuffle(SHUFFLE_SEED ^ 0xFFFF);
+
+            (train, test)
+        }
+    };
+
+    if let Some(limit) = max_rows {
+        train.truncate(limit);
+        test.truncate(limit);
+    }
+
+    println!("{:?} -> train: {} Bilder, test: {} Bilder", source, train.count, test.count);
 
     Ok(Emnist { train, test })
 }
 
-fn require_file(dir: &Path, name: &str) -> Result<PathBuf, String> {
+fn load_dataset(dir: &Path, files: &DatasetFiles) -> Result<(Split, Split), String> {
+    let train_images_path = require_file(dir, files.train_images, files.download_base)?;
+    let train_labels_path = require_file(dir, files.train_labels, files.download_base)?;
+    let test_images_path = require_file(dir, files.test_images, files.download_base)?;
+    let test_labels_path = require_file(dir, files.test_labels, files.download_base)?;
+
+    let train = load_split(
+        &format!("{}/train", files.label),
+        &train_images_path,
+        &train_labels_path,
+    )?;
+    let test = load_split(
+        &format!("{}/test", files.label),
+        &test_images_path,
+        &test_labels_path,
+    )?;
+
+    Ok((train, test))
+}
+
+fn require_file(dir: &Path, name: &str, download_base: Option<&str>) -> Result<PathBuf, String> {
     let path = dir.join(name);
 
     if !path.exists() {
-        return Err(format!(
-            "{} not found.\nDownload: {}/{}",
-            path.display(),
-            DOWNLOAD_BASE,
-            name
-        ));
+        return Err(match download_base {
+            Some(base) => format!("{} not found.\nDownload: {}/{}", path.display(), base, name),
+            None => format!("{} not found.", path.display()),
+        });
     }
 
     Ok(path)
 }
 
-fn load_split(
-    name: &str,
-    images_path: &Path,
-    labels_path: &Path,
-    max_rows: Option<usize>,
-) -> Result<Split, String> {
+fn load_split(name: &str, images_path: &Path, labels_path: &Path) -> Result<Split, String> {
     let image_bytes = read_gz(images_path)?;
     let label_bytes = read_gz(labels_path)?;
 
     let (mut pixels, image_count) = parse_idx3(&image_bytes)?;
-    let (mut labels, label_count) = parse_idx1(&label_bytes)?;
+    let (labels, label_count) = parse_idx1(&label_bytes)?;
 
     if image_count != label_count {
         return Err(format!(
@@ -176,27 +318,17 @@ fn load_split(
         ));
     }
 
-    let mut count = image_count;
+    // EMNIST (und die Captcha-Daten) liegen in den IDX-Dateien transponiert vor
+    // (Zeilen und Spalten vertauscht gegenüber MNIST). Ohne diesen Schritt
+    // stehen alle Zeichen seitwärts und das Netz lernt Unsinn.
+    transpose_all(&mut pixels, image_count);
 
-    if let Some(limit) = max_rows {
-        if limit < count {
-            count = limit;
-            pixels.truncate(count * PIXELS_PER_IMAGE);
-            labels.truncate(count);
-        }
-    }
-
-    // EMNIST liegt in den IDX-Dateien transponiert vor (Zeilen und Spalten
-    // vertauscht gegenüber MNIST). Ohne diesen Schritt stehen alle Zeichen
-    // seitwärts und das Netz lernt Unsinn.
-    transpose_all(&mut pixels, count);
-
-    println!("{}: {} Bilder", name, count);
+    println!("{}: {} Bilder", name, image_count);
 
     Ok(Split {
         pixels,
         labels,
-        count,
+        count: image_count,
     })
 }
 
