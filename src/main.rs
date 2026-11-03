@@ -1,6 +1,5 @@
 use std::io::Write;
-use std::path::Path;
-use crate::handle::base;
+use crate::handle::*;
 use crate::models::AppConfig;
 
 mod models;
@@ -10,7 +9,7 @@ mod emnist;
 
 fn main() {
     let config = AppConfig::load().expect("failed to load config");
-    config.save().expect("failed to save config");
+    config.save().expect("failed to load config properly");
 
     loop {
         print!(">: ");
@@ -18,7 +17,7 @@ fn main() {
         let mut input = String::new();
         std::io::stdin().read_line(&mut input).unwrap();
 
-        let result = base(input);
+        let result = handle::base(input);
 
         match result {
             Ok(value) => {

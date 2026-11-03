@@ -105,7 +105,7 @@ impl AppConfig {
 
         fs::create_dir_all(&model_dir).map_err(|e| format!("failed to create model dir: {}", e))?;
 
-        let model_path = model_dir + ".json";
+        let model_path = model_dir + "\\model.safetensors";
 
         let config = AppConfig {model_path, epochs: 10, batch_size: 64, device: "cpu".to_string(), learning_rate: 0.001};
 

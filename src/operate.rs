@@ -137,8 +137,8 @@ pub fn resolve(source_path: String) -> Result<Option<String>, String> {
     }
 
     let ranked = candidates(&per_position, 10);
-    for (s, p) in &ranked {
-        full_prediction.push_str(s);
+    for (s, p) in ranked {
+        full_prediction.push_str(format!("\n{}: {}", p, s).as_str());
     }
 
     Ok(Some(full_prediction))
@@ -323,13 +323,6 @@ fn image_clean_and_split_up(image: DynamicImage) -> Result<Vec<GrayImage>, Strin
     let gray = image.grayscale();
     let mut black_and_white = make_black_and_white(&gray.to_rgb8());
     black_and_white = median_filter(&black_and_white, 1, 1);
-
-    let result = match black_and_white.save("C:\\Users\\p50232\\black_white.jpeg") {
-        Ok(result) => result,
-        Err(error) => {return Err(error.to_string())}
-    };
-
-    println!("Black and white saved");
 
     let letters = image_split_up(black_and_white).map_err(|error| error.to_string())?;
 
