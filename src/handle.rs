@@ -1,6 +1,7 @@
 ﻿use std::collections::HashMap;
 use std::process::exit;
-use crate::models::{Input, Command, AppConfig};
+use crate::models::{Input, Command, AppConfig, OcrTrainTestEnum};
+use crate::models::OcrTrainTestEnum::Combined;
 use crate::operate::{invert, grayscale, resolve, train_ocr, test_ocr, load_and_split};
 
 pub fn base(input_str: String) -> Result<Option<String>, String> {
@@ -22,7 +23,7 @@ pub fn base(input_str: String) -> Result<Option<String>, String> {
     }
 }
 
-pub fn get_values(name: String, args_values: HashMap<String, String>) -> Result<Vec<String>, String> {
+pub fn get_values(name: String, args_values: HashMap<String, String>) -> Result<Vec<Option<String>>, String> {
     let command_result = Command::get(name.as_str());
 
     let command: Command =  match command_result {
@@ -30,21 +31,21 @@ pub fn get_values(name: String, args_values: HashMap<String, String>) -> Result<
         Err(e) => {return Err(e)}
     };
 
-    let mut values: Vec<String> = Vec::new();
+    let mut values: Vec<Option<String>> = Vec::new();
     for (arg, has_value) in command.args.unwrap() {
         if args_values.contains_key(arg) {
             if has_value {
                 let value_option = args_values.get(arg);
                 match value_option {
-                    Some(v) => { values.push(v.to_string()); },
+                    Some(v) => { values.push(Some(v.to_string())); },
                     None => { return Err(format!("No value for arg '{}'", arg)) }
                 }
             } else {
-                values.push("1".to_string());
+                values.push(Some("1".to_string()));
             }
         }
-        else if !args_values.contains_key(arg) && !has_value{
-            values.push("0".to_string());
+        else{
+            values.push(None);
         }
     }
 
@@ -63,8 +64,14 @@ pub fn handle_grayscale(args_values: HashMap<String, String>) -> Result<Option<S
         return Err("Invalid grayscale arguments".to_string());
     }
 
-    let source = values[0].clone();
-    let output = values[1].clone();
+    let source = match values[0].clone() {
+        Some(s) => s,
+        None => return Err("No source path set".to_string())
+    };
+    let output = match values[1].clone() {
+        Some(o) => o,
+        None => return Err("No output path set".to_string())
+    };
 
     grayscale(source, output)
 }
@@ -81,8 +88,15 @@ pub fn handle_invert(args_values: HashMap<String, String>) -> Result<Option<Stri
         return Err("Invalid invert arguments".to_string());
     }
 
-    let source = values[0].clone();
-    let output = values[1].clone();
+    let source = match values[0].clone() {
+        Some(s) => s,
+        None => return Err("No source path set".to_string())
+    };
+    let output = match values[1].clone() {
+        Some(o) => o,
+        None => return Err("No output path set".to_string())
+    };
+
     invert(source, output)
 }
 
@@ -98,9 +112,20 @@ pub fn handle_color(args_values: HashMap<String, String>) -> Result<Option<Strin
         return Err("Invalid color arguments".to_string());
     }
 
-    let source = values[0].clone();
-    let output = values[1].clone();
-    let all_as_integer = values[2].clone().parse::<i32>().map_err(|_| "Invalid grayscale arguments")?;
+    let source = match values[0].clone() {
+        Some(s) => s,
+        None => return Err("No source path set".to_string())
+    };
+    let output = match values[1].clone() {
+        Some(o) => o,
+        None => return Err("No output path set".to_string())
+    };
+
+    let all_as_integer = match values[2].clone() {
+        Some(a) => a.parse::<i32>().map_err(|_| "Invalid grayscale arguments")?,
+        None => 0
+    };
+
     let all = if all_as_integer == 1 { true } else { false };
 
     panic!("not implemented");
@@ -111,17 +136,59 @@ pub fn handle_ocr(args_values: HashMap<String, String>) -> Result<Option<String>
         Ok(v) => v,
         Err(e) => {return Err(e)}
     };
+    let default_option = Combined.decode().map_err(|e| e)?;
 
+    let mut result : Result<Option<String>, String> = Ok(None);
     if args_values.contains_key("--train") {
-        return train_ocr()
+        let option_str = match &values[0] {
+            Some(o) => o.as_str(),
+            None => {
+                println!("using default train/test option");
+                default_option.as_str()
+            }
+        };
+
+        let data_option = OcrTrainTestEnum::encode(option_str)?;
+
+        result = train_ocr(data_option);
+
+        if args_values.len() == 1 {
+            return result
+        }
     }
 
+    match result {
+        Ok(o) => match o {
+            Some(str) => {
+                println!("{}", str);
+            },
+            None => {}
+        },
+        Err(e) => return Err(e)
+    }
+
+    result = Ok(None);
+
     if args_values.contains_key("--test") {
-        return  test_ocr()
+        let option_str = match &values[1] {
+            Some(o) => o.as_str(),
+            None => {
+                println!("using default train/test option");
+                default_option.as_str()
+            }
+        };
+
+        let data_option = OcrTrainTestEnum::encode(option_str).map_err(|e| e)?;
+
+       result = test_ocr(data_option);
+        return result
     }
 
     if args_values.contains_key("--resolve") && !args_values.contains_key("--test") && !args_values.contains_key("--train") {
-        let source = values[2].clone();
+        let source = match values[2].clone() {
+            Some(s) => s,
+            None => return Err("No source path set".to_string())
+        };
         return  resolve(source)
     }
 
@@ -130,17 +197,6 @@ pub fn handle_ocr(args_values: HashMap<String, String>) -> Result<Option<String>
 
 pub fn handle_exit(_: HashMap<String, String>) -> Result<Option<String>, String> {
     exit(0);
-}
-
-pub fn handle_test(args_values: HashMap<String, String>) -> Result<Option<String>, String> {
-    let config = AppConfig::load().map_err(|e| format!("{}", e))?;
-    let values = get_values("test-load".to_string(), args_values).map_err(|e| format!("{}", e))?;
-
-    let source = values[0].clone();
-
-    let result = load_and_split(source.as_str(), config.device().map_err(|e| e.to_string())?).map_err(|e| format!("{}", e))?;
-
-    Ok(Some("test".to_string()))
 }
 
 impl Input {

@@ -5,7 +5,8 @@ use candle_nn::ops::softmax;
 use candle_nn::Optimizer;
 use image::{imageops, DynamicImage, GenericImageView, GrayImage, ImageBuffer, Luma, Rgb, RgbImage};
 use imageproc::filter::median_filter;
-use crate::models::{AppConfig, BBox, CNN};
+use imageproc::gradients::gradients;
+use crate::models::{AppConfig, BBox, OcrTrainTestEnum, CNN};
 use crate::emnist;
 use crate::emnist::{Emnist, Source, load_from};
 use imageproc::region_labelling::{connected_components, Connectivity};
@@ -47,10 +48,10 @@ pub fn invert(source_path: String, output_path: String) -> Result<Option<String>
     }
 }
 
-pub fn test_ocr() -> Result<Option<String>, String> {
+pub fn test_ocr(option: OcrTrainTestEnum) -> Result<Option<String>, String> {
     let app_config = AppConfig::load().map_err(|error| "[app_config]".to_string() + error.as_str())?;
     let device = app_config.device()?;
-    let data = load_data().map_err(|error| "[data]".to_string() + error.as_str())?;
+    let data = load_data(option).map_err(|error| "[data]".to_string() + error.as_str())?;
     let cnn = CNN::load(&device).map_err(|error| "[cnn]".to_string() + error.as_str())?;
 
     let bsz = app_config.batch_size;
@@ -191,9 +192,9 @@ fn to_emnist(crop: &GrayImage) -> GrayImage {
     out
 }
 
-pub fn train_ocr() -> Result<Option<String>, String> {
+pub fn train_ocr(option: OcrTrainTestEnum) -> Result<Option<String>, String> {
 
-    let data = match load_data() {
+    let data = match load_data(option) {
         Ok(data) => data,
         Err(error) => return Err(error.to_string())
     };
@@ -281,6 +282,7 @@ pub fn train_ocr() -> Result<Option<String>, String> {
 pub fn load_and_split(path: &str, device: Device) -> Result<Vec<Tensor>, String> {
     let img = load_image(path.to_string()).map_err(|error| error.to_string())?;
 
+
     let letters = image_clean_and_split_up(img).map_err(|error| error.to_string())?;
 
     let mut tensors: Vec<Tensor> = Vec::new();
@@ -302,14 +304,14 @@ fn load_image(path: String) -> Result<DynamicImage, String> {
     Ok(img)
 }
 
-fn load_data() -> Result<Emnist, String> {
+fn load_data(option: OcrTrainTestEnum) -> Result<Emnist, String> {
     let config_dir = match AppConfig::get_config_dir() {
         Ok(config_dir) => config_dir,
         Err(error) => return Err(error.to_string())
     };
     let emnist_dir = Path::new(&config_dir).join("emnist");
 
-    let data = match emnist::load_from(&emnist_dir, Source::Captcha, None) {
+    let data = match emnist::load_from(&emnist_dir, option.to_data_source().map_err(|e| e)?, None) {
         Ok(data) => data,
         Err(error) => return Err(error.to_string())
     };
@@ -323,6 +325,7 @@ fn image_clean_and_split_up(image: DynamicImage) -> Result<Vec<GrayImage>, Strin
     let gray = image.grayscale();
     let mut black_and_white = make_black_and_white(&gray.to_rgb8());
     black_and_white = median_filter(&black_and_white, 1, 1);
+    black_and_white = imageproc::morphology::open(&black_and_white, imageproc::distance_transform::Norm::LInf, 1);
 
     let letters = image_split_up(black_and_white).map_err(|error| error.to_string())?;
 
@@ -331,7 +334,6 @@ fn image_clean_and_split_up(image: DynamicImage) -> Result<Vec<GrayImage>, Strin
 
 fn make_black_and_white(image: &RgbImage) -> GrayImage {
     let bg = background_color(&image);
-    eprintln!("background rgb: {:?}", bg);
 
     let max_dist = (3.0f32 * 255.0 * 255.0).sqrt();
     let (w, h) = image.dimensions();

@@ -1,10 +1,13 @@
 ﻿use std::collections::HashMap;
+use std::f32::consts::E;
 use std::fs;
 use std::path::{Path, PathBuf};
 use candle_core::{DType, Device, Module, Tensor};
 use candle_nn::{Conv2d, Conv2dConfig, Linear, VarBuilder, conv2d, linear, VarMap};
 use serde::{Deserialize, Serialize};
-use crate::handle;
+use crate::{emnist, handle};
+use crate::emnist::Source;
+use crate::models::OcrTrainTestEnum::{Captcha, Combined, Emnist};
 
 #[derive(Clone)]
 pub struct Command {
@@ -54,9 +57,48 @@ pub struct Vocab {
 pub struct BBox {
     pub min_x: u32,
     pub min_y: u32,
-    pub max_x: u32, // inklusiv
-    pub max_y: u32, // inklusiv
-    pub area: u32,  // Anzahl Vordergrundpixel
+    pub max_x: u32,
+    pub max_y: u32,
+    pub area: u32,
+}
+
+pub enum OcrTrainTestEnum
+{
+    Emnist,
+    Captcha,
+    Combined
+}
+
+impl OcrTrainTestEnum {
+    pub fn encode(str: &str) -> Result<Self, String> {
+        if str.to_lowercase().eq("emnist") {
+            return Ok(Emnist)
+        }
+        else if str.to_lowercase().eq("captcha") {
+            return Ok(Captcha)
+        }
+        else if str.to_lowercase().eq("combined") {
+            return Ok(Combined)
+        }
+
+        Err(format!("Could not convert {} to any train/test option", str))
+    }
+
+    pub fn decode(&self) -> Result<String, String> {
+        match self {
+            Emnist => Ok("emnist".to_string()),
+            Captcha => Ok("captcha".to_string()),
+            Combined => Ok("combined".to_string())
+        }
+    }
+
+    pub fn to_data_source(&self) -> Result<emnist::Source, String> {
+        match self {
+            Emnist => Ok(Source::Emnist),
+            Captcha => Ok(Source::Captcha),
+            Combined => Ok(Source::Combined)
+        }
+    }
 }
 
 impl BBox {
@@ -329,8 +371,7 @@ impl Command {
         let exit = Command::new("exit", "", None, handle::handle_exit);
         let invert = Command::new("invert", "", Some(vec![("--source", true), ("--output", true)]), handle::handle_invert);
         let color = Command::new("color", "", Some(vec![("--source", true), ("--output", true), ("--all", false), ("-r", true), ("-g", true), ("-b", true)]), handle::handle_color);
-        let ocr = Command::new("ocr", "", Some(vec![("--train", false), ("--test", false), ("--resolve", true)]), handle::handle_ocr);
-        let test = Command::new("test-load", "", Some(vec![("--source", true)]), handle::handle_test);
+        let ocr = Command::new("ocr", "", Some(vec![("--train", true), ("--test", true), ("--resolve", true)]), handle::handle_ocr);
 
         let mut commands = Vec::new();
 
@@ -339,7 +380,6 @@ impl Command {
         commands.push(color);
         commands.push(ocr);
         commands.push(exit);
-        commands.push(test);
 
         commands
     }
