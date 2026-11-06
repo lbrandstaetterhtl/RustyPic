@@ -1,6 +1,6 @@
 ﻿use std::collections::HashMap;
 use std::process::exit;
-use crate::models::{Input, Command, AppConfig, OcrTrainTestEnum};
+use crate::models::{Input, Command, OcrTrainTestEnum};
 use crate::models::OcrTrainTestEnum::Combined;
 use crate::operate::{invert, grayscale, resolve, train_ocr, test_ocr, load_and_split};
 

@@ -3,14 +3,12 @@ use std::path::Path;
 use candle_core::{Device, Tensor};
 use candle_nn::ops::softmax;
 use candle_nn::Optimizer;
-use image::{imageops, DynamicImage, GenericImageView, GrayImage, ImageBuffer, Luma, Rgb, RgbImage};
+use image::{imageops, DynamicImage, GrayImage, ImageBuffer, Luma, Rgb, RgbImage};
 use imageproc::filter::median_filter;
-use imageproc::gradients::gradients;
 use crate::models::{AppConfig, BBox, OcrTrainTestEnum, CNN};
 use crate::emnist;
 use crate::emnist::{Emnist, Source, load_from};
 use imageproc::region_labelling::{connected_components, Connectivity};
-use serde_json::to_string;
 
 pub fn grayscale(source_path: String, output_path: String) -> Result<Option<String>, String>
 {
