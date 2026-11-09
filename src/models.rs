@@ -1,9 +1,7 @@
 ﻿use std::collections::HashMap;
 use std::fs;
-use std::hash::Hash;
 use std::path::{Path, PathBuf};
 use candle_core::{DType, Device, Module, Tensor};
-use candle_core::op::Op;
 use candle_nn::{Conv2d, Conv2dConfig, Linear, VarBuilder, conv2d, linear, VarMap};
 use serde::{Deserialize, Serialize};
 use crate::{emnist, handle};
