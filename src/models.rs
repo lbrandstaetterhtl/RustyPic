@@ -1,7 +1,9 @@
 ﻿use std::collections::HashMap;
 use std::fs;
+use std::hash::Hash;
 use std::path::{Path, PathBuf};
 use candle_core::{DType, Device, Module, Tensor};
+use candle_core::op::Op;
 use candle_nn::{Conv2d, Conv2dConfig, Linear, VarBuilder, conv2d, linear, VarMap};
 use serde::{Deserialize, Serialize};
 use crate::{emnist, handle};
@@ -12,8 +14,16 @@ use crate::models::OcrTrainTestEnum::{Captcha, Combined, Emnist};
 pub struct Command {
     pub name: &'static str,
     pub description: &'static str,
-    pub args: Option<Vec<(&'static str, bool)>>,
-    pub handle_fn: fn(args_values: HashMap<String, String>) -> Result<Option<String>, String>,
+    pub args_types: Option<HashMap<&'static str, ValueTypes>>,
+    pub handle_fn: fn(args_values: HashMap<&'static str, ValueTypes>) -> Result<Option<String>, String>,
+}
+
+#[derive(Clone)]
+pub enum ValueTypes {
+    Int(Option<i64>),
+    Bool(Option<bool>),
+    String(Option<String>),
+    Data(Option<OcrTrainTestEnum>)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -22,12 +32,13 @@ pub struct AppConfig {
     pub epochs: u32,
     pub batch_size: usize,
     pub device: String,
-    pub learning_rate: f64
+    pub learning_rate: f64,
+    pub debug_dir: String
 }
 
 pub struct Input {
     pub command: Command,
-    pub args_values: HashMap<String, String>
+    pub args_values: Option<HashMap<&'static str, ValueTypes>>
 }
 
 #[derive(Serialize, Deserialize)]
@@ -61,6 +72,22 @@ pub struct BBox {
     pub area: u32,
 }
 
+impl ValueTypes {
+    pub fn as_int(&self) -> Option<i64> {
+        if let ValueTypes::Int(n) = self { *n } else { None }
+    }
+    pub fn as_bool(&self) -> Option<bool> {
+        if let ValueTypes::Bool(b) = self { *b } else { None }
+    }
+    pub fn as_str(&self) -> Option<String> {
+        if let ValueTypes::String(Some(s)) = self { Some(s.clone()) } else { None }
+    }
+    pub fn as_data(&self) -> Option<OcrTrainTestEnum> {
+        if let ValueTypes::Data(Some(d)) = self { Some(d.clone()) } else { None }
+    }
+}
+
+#[derive(Clone)]
 pub enum OcrTrainTestEnum
 {
     Emnist,
@@ -132,6 +159,12 @@ impl AppConfig {
         Ok(PathBuf::from(app_data).join("Models").to_str().unwrap().to_string())
     }
 
+    fn get_debug_dir() -> Result<String, String> {
+        let app_data = AppConfig::get_config_dir().map_err(|e| e.to_string())?;
+
+        Ok(PathBuf::from(app_data).join("debug").to_str().unwrap().to_string())
+    }
+
     pub fn device(&self) -> Result<Device, String> {
         match self.device.as_str() {
             "cpu" => Ok(Device::Cpu),
@@ -143,12 +176,14 @@ impl AppConfig {
 
     pub fn build_default() -> Result<AppConfig, String> {
         let model_dir = Self::get_model_dir()?;
+        let debug_dir = Self::get_debug_dir()?;
 
         fs::create_dir_all(&model_dir).map_err(|e| format!("failed to create model dir: {}", e))?;
+        fs::create_dir_all(&debug_dir).map_err(|e| format!("failed to create debug dir: {}", e))?;
 
         let model_path = model_dir + "\\model.safetensors";
 
-        let config = AppConfig {model_path, epochs: 10, batch_size: 64, device: "cpu".to_string(), learning_rate: 0.001};
+        let config = AppConfig {model_path, epochs: 10, batch_size: 64, device: "cpu".to_string(), learning_rate: 0.001, debug_dir};
 
         match config.save() {
             Ok(_) => Ok(config),
@@ -359,18 +394,37 @@ impl CNN {
 }
 
 impl Input {
-    pub fn new(command: Command, args_values: HashMap<String, String>) -> Input {
+    pub fn new(command: Command, args_values: Option<HashMap<&'static str, ValueTypes>>) -> Input {
         Input{command, args_values}
     }
 }
 
 impl Command {
     pub fn get_all() -> Vec<Command> {
-        let grayscale = Command::new("grayscale", "", Some(vec![("--source", true), ("--output", true)]), handle::handle_grayscale);
+        let mut default_args: HashMap<&'static str, ValueTypes> = HashMap::new();
+        default_args.insert("--source", ValueTypes::String(None));
+        default_args.insert("--output", ValueTypes::String(None));
+        let grayscale = Command::new("grayscale", "", Some(default_args.clone()), handle::handle_grayscale);
+
         let exit = Command::new("exit", "", None, handle::handle_exit);
-        let invert = Command::new("invert", "", Some(vec![("--source", true), ("--output", true)]), handle::handle_invert);
-        let color = Command::new("color", "", Some(vec![("--source", true), ("--output", true), ("--all", false), ("-r", true), ("-g", true), ("-b", true)]), handle::handle_color);
-        let ocr = Command::new("ocr", "", Some(vec![("--train", true), ("--test", true), ("--resolve", true)]), handle::handle_ocr);
+
+        let invert = Command::new("invert", "", Some(default_args), handle::handle_invert);
+
+        let mut color_args: HashMap<&'static str, ValueTypes> = HashMap::new();
+        color_args.insert("--source", ValueTypes::String(None));
+        color_args.insert("--output", ValueTypes::String(None));
+        color_args.insert("--all", ValueTypes::Bool(None));
+        color_args.insert("-r", ValueTypes::Int(None));
+        color_args.insert("-g", ValueTypes::Int(None));
+        color_args.insert("-b", ValueTypes::Int(None));
+        let color = Command::new("color", "", Some(color_args), handle::handle_color);
+
+        let mut ocr_args: HashMap<&'static str, ValueTypes> = HashMap::new();
+        ocr_args.insert("--train", ValueTypes::Data(None));
+        ocr_args.insert("--test", ValueTypes::Data(None));
+        ocr_args.insert("--resolve", ValueTypes::String(None));
+        ocr_args.insert("--debug", ValueTypes::Bool(None));
+        let ocr = Command::new("ocr", "", Some(ocr_args), handle::handle_ocr);
 
         let mut commands = Vec::new();
 
@@ -396,8 +450,8 @@ impl Command {
         command_result
     }
 
-    fn new(name: &'static str, description: &'static str, args: Option<Vec<(&'static str, bool)>>, handle_fn: fn(args_values: HashMap<String, String>) -> Result<Option<String>, String>) -> Command {
-        Command{name, description, args, handle_fn }
+    fn new(name: &'static str, description: &'static str, args_types: Option<HashMap<&'static str, ValueTypes>>, handle_fn: fn(args_values: HashMap<&'static str, ValueTypes>) -> Result<Option<String>, String>) -> Command {
+        Command{name, description, args_types, handle_fn }
     }
 }
 

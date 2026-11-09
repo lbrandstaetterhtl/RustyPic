@@ -11,7 +11,7 @@ fn main() {
     config.save().expect("failed to load config properly");
 
     loop {
-        print!(">: ");
+        print!("\n>: ");
         std::io::stdout().flush().unwrap();
         let mut input = String::new();
         std::io::stdin().read_line(&mut input).unwrap();

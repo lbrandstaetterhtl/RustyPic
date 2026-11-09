@@ -13,6 +13,7 @@ image = "0.25"
 shell-words = "1.1.1"
 flate2 = "1"
 imageproc = "0.27.0"
+chrono = "0.4.45"
 
 [profile.release]
 lto = true

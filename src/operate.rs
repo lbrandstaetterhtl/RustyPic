@@ -1,5 +1,5 @@
 ﻿use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use candle_core::{Device, Tensor};
 use candle_nn::ops::softmax;
 use candle_nn::Optimizer;
@@ -7,8 +7,10 @@ use image::{imageops, DynamicImage, GrayImage, ImageBuffer, Luma, Rgb, RgbImage}
 use imageproc::filter::median_filter;
 use crate::models::{AppConfig, BBox, OcrTrainTestEnum, CNN};
 use crate::emnist;
-use crate::emnist::{Emnist, Source, load_from};
+use crate::emnist::{Emnist};
 use imageproc::region_labelling::{connected_components, Connectivity};
+use chrono::Local;
+
 
 pub fn grayscale(source_path: String, output_path: String) -> Result<Option<String>, String>
 {
@@ -107,25 +109,42 @@ pub fn test_ocr(option: OcrTrainTestEnum) -> Result<Option<String>, String> {
     Ok(None)
 }
 
-pub fn resolve(source_path: String) -> Result<Option<String>, String> {
+pub fn resolve(source_path: String, debug: bool) -> Result<Option<String>, String> {
     let app_config = match AppConfig::load() {
         Ok(app_config) => app_config,
         Err(error) => return Err(error.to_string())
     };
+
+    if debug {
+        println!("Successfully loaded AppConfig");
+    }
+
     let device = match app_config.device() {
         Ok(device) => device,
         Err(error) => return Err(error.to_string())
     };
+
+    if debug {
+        println!("Successfully loaded device from AppConfig");
+    }
+
     let cnn = match CNN::load(&device) {
         Ok(cnn) => cnn,
         Err(error) => return Err(error.to_string())
     };
 
-    let tensors = match load_and_split(source_path.as_str(), device) {
+    if debug {
+        println!("Successfully loaded CNN");
+    }
+
+    let tensors = match load_and_split(source_path.as_str(), device, debug) {
         Ok(tensors) => tensors,
         Err(error) => return Err(error.to_string())
     };
 
+    if debug {
+        println!("Successfully loaded and processed image");
+    }
 
     let mut full_prediction: String = String::new();
 
@@ -277,11 +296,10 @@ pub fn train_ocr(option: OcrTrainTestEnum) -> Result<Option<String>, String> {
     Ok(Some("Training finished and model saved successfully".to_string()))
 }
 
-pub fn load_and_split(path: &str, device: Device) -> Result<Vec<Tensor>, String> {
+pub fn load_and_split(path: &str, device: Device, debug: bool) -> Result<Vec<Tensor>, String> {
     let img = load_image(path.to_string()).map_err(|error| error.to_string())?;
 
-
-    let letters = image_clean_and_split_up(img).map_err(|error| error.to_string())?;
+    let letters = image_clean_and_split_up(img, debug).map_err(|error| error.to_string())?;
 
     let mut tensors: Vec<Tensor> = Vec::new();
     for letter in letters {
@@ -291,6 +309,10 @@ pub fn load_and_split(path: &str, device: Device) -> Result<Vec<Tensor>, String>
         let t = Tensor::from_vec(pixel, (1, 1, 28, 28), &device).map_err(|error| error.to_string())?;
 
         tensors.push(t);
+    }
+
+    if debug {
+        println!("Successfully converted image of each letter into a tensor")
     }
 
     Ok(tensors)
@@ -318,20 +340,60 @@ fn load_data(option: OcrTrainTestEnum) -> Result<Emnist, String> {
 }
 
 
-fn image_clean_and_split_up(image: DynamicImage) -> Result<Vec<GrayImage>, String> {
-
+fn image_clean_and_split_up(image: DynamicImage, debug: bool) -> Result<Vec<GrayImage>, String> {
+    let config = AppConfig::load().map_err(|e| e.to_string())?;
     let gray = image.grayscale();
-    let mut black_and_white = make_black_and_white(&gray.to_rgb8());
+
+    if debug {
+        println!("Successfully gray scaled image");
+    }
+
+    let mut black_and_white = make_black_and_white(&gray.to_rgb8(), debug);
+
+    if debug {
+        let name = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+        let path = format!("{}_black_and_white.png", name);
+        let path = PathBuf::from(&config.debug_dir).join(path);
+        black_and_white.save(path.clone()).map_err(|e| e.to_string())?;
+
+        println!("Successfully made image black and white only | Successfully saved black and white only debug image at {}", path.to_str().unwrap());
+    }
+
     black_and_white = median_filter(&black_and_white, 1, 1);
+
+    if debug {
+        println!("Successfully applied median filter");
+    }
+
     black_and_white = imageproc::morphology::open(&black_and_white, imageproc::distance_transform::Norm::LInf, 1);
 
     let letters = image_split_up(black_and_white).map_err(|error| error.to_string())?;
 
+    if debug {
+        println!("Successfully split up of image into each letter");
+
+        let mut i = 0;
+        for letter in &letters {
+            let name = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+            let path = format!("{}_split_{}.png", name, i);
+            let path = PathBuf::from(&config.debug_dir).join(path);
+
+            letter.save(path.clone()).map_err(|e| e.to_string())?;
+            println!("Successfully saved split up {} of image at {}", i, path.to_str().unwrap());
+
+            i+=1;
+        }
+    }
+
     Ok(letters)
 }
 
-fn make_black_and_white(image: &RgbImage) -> GrayImage {
+fn make_black_and_white(image: &RgbImage, debug: bool) -> GrayImage {
     let bg = background_color(&image);
+
+    if debug {
+        println!("Successfully got background color");
+    }
 
     let max_dist = (3.0f32 * 255.0 * 255.0).sqrt();
     let (w, h) = image.dimensions();

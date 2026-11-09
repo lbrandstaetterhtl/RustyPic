@@ -1,8 +1,9 @@
 ﻿use std::collections::HashMap;
 use std::process::exit;
-use crate::models::{Input, Command, OcrTrainTestEnum};
+use crate::models::{Input, Command, OcrTrainTestEnum, ValueTypes};
 use crate::models::OcrTrainTestEnum::Combined;
-use crate::operate::{invert, grayscale, resolve, train_ocr, test_ocr, load_and_split};
+use crate::operate;
+use crate::operate::{invert, grayscale, train_ocr, test_ocr};
 
 pub fn base(input_str: String) -> Result<Option<String>, String> {
     let parts: Vec<String> = shell_words::split(input_str.trim())
@@ -15,7 +16,8 @@ pub fn base(input_str: String) -> Result<Option<String>, String> {
         Ok(input) => {
             let handle_fn = input.command.handle_fn;
 
-            let result = handle_fn(input.args_values);
+            let args_values = input.args_values.unwrap_or_else(|| HashMap::new());
+            let result = handle_fn(args_values);
 
             result
         },
@@ -23,179 +25,113 @@ pub fn base(input_str: String) -> Result<Option<String>, String> {
     }
 }
 
-pub fn get_values(name: String, args_values: HashMap<String, String>) -> Result<Vec<Option<String>>, String> {
-    let command_result = Command::get(name.as_str());
+pub fn handle_grayscale(args_values: HashMap<&'static str, ValueTypes>) -> Result<Option<String>, String> {
+    let mut source = "".to_string();
+    let mut output = "".to_string();
 
-    let command: Command =  match command_result {
-        Ok(c) => {c},
-        Err(e) => {return Err(e)}
-    };
-
-    let mut values: Vec<Option<String>> = Vec::new();
-    for (arg, has_value) in command.args.unwrap() {
-        if args_values.contains_key(arg) {
-            if has_value {
-                let value_option = args_values.get(arg);
-                match value_option {
-                    Some(v) => { values.push(Some(v.to_string())); },
-                    None => { return Err(format!("No value for arg '{}'", arg)) }
-                }
-            } else {
-                values.push(Some("1".to_string()));
+    for (a, v) in args_values {
+        if a == "--source" {
+            source = match v.as_str() {
+                Some(s) => s,
+                None => return Err("Couldn't get source value from input".to_string())
+            };
+        }
+        else if a == "--output" {
+            output = match v.as_str() {
+                Some(s) => s,
+                None => return Err("Couldn't get output value from input".to_string())
             }
         }
-        else{
-            values.push(None);
-        }
     }
-
-    Ok(values)
-}
-
-pub fn handle_grayscale(args_values: HashMap<String, String>) -> Result<Option<String>, String> {
-    let values_result = get_values("grayscale".to_string(), args_values);
-
-    let values = match values_result {
-        Ok(v) => v,
-        Err(e) => {return Err(e)}
-    };
-
-    if values.len() == 0 || values.len() < 2 || values.len() > 2 {
-        return Err("Invalid grayscale arguments".to_string());
-    }
-
-    let source = match values[0].clone() {
-        Some(s) => s,
-        None => return Err("No source path set".to_string())
-    };
-    let output = match values[1].clone() {
-        Some(o) => o,
-        None => return Err("No output path set".to_string())
-    };
 
     grayscale(source, output)
 }
 
-pub fn handle_invert(args_values: HashMap<String, String>) -> Result<Option<String>, String> {
-    let values_result = get_values("invert".to_string(), args_values);
+pub fn handle_invert(args_values:HashMap<&'static str, ValueTypes>) -> Result<Option<String>, String> {
+    let mut source = "".to_string();
+    let mut output = "".to_string();
 
-    let values = match values_result {
-        Ok(v) => v,
-        Err(e) => return Err(e)
-    };
-
-    if values.len() == 0 || values.len() < 2 || values.len() > 2 {
-        return Err("Invalid invert arguments".to_string());
+    for (a, v) in args_values {
+        if a == "--source" {
+            source = match v.as_str() {
+                Some(s) => s,
+                None => return Err("Couldn't get source value from input".to_string())
+            };
+        }
+        else if a == "--output" {
+            output = match v.as_str() {
+                Some(s) => s,
+                None => return Err("Couldn't get output value from input".to_string())
+            }
+        }
     }
-
-    let source = match values[0].clone() {
-        Some(s) => s,
-        None => return Err("No source path set".to_string())
-    };
-    let output = match values[1].clone() {
-        Some(o) => o,
-        None => return Err("No output path set".to_string())
-    };
 
     invert(source, output)
 }
 
-pub fn handle_color(args_values: HashMap<String, String>) -> Result<Option<String>, String> {
-    let values_result = get_values("color".to_string(), args_values);
-
-    let values = match values_result {
-        Ok(v) => v,
-        Err(e) => {return Err(e)}
-    };
-
-    if values.len() == 0 || values.len() < 2 || values.len() > 2 {
-        return Err("Invalid color arguments".to_string());
-    }
-
-    let source = match values[0].clone() {
-        Some(s) => s,
-        None => return Err("No source path set".to_string())
-    };
-    let output = match values[1].clone() {
-        Some(o) => o,
-        None => return Err("No output path set".to_string())
-    };
-
-    let all_as_integer = match values[2].clone() {
-        Some(a) => a.parse::<i32>().map_err(|_| "Invalid grayscale arguments")?,
-        None => 0
-    };
-
-    let all = if all_as_integer == 1 { true } else { false };
+pub fn handle_color(args_values: HashMap<&'static str, ValueTypes>) -> Result<Option<String>, String> {;
 
     panic!("not implemented");
 }
 
-pub fn handle_ocr(args_values: HashMap<String, String>) -> Result<Option<String>, String> {
-    let values = match get_values("ocr".to_string(), args_values.clone()) {
-        Ok(v) => v,
-        Err(e) => {return Err(e)}
-    };
-    let default_option = Combined.decode().map_err(|e| e)?;
+pub fn handle_ocr(args_values: HashMap<&'static str, ValueTypes>) -> Result<Option<String>, String> {
 
-    let mut result : Result<Option<String>, String> = Ok(None);
-    if args_values.contains_key("--train") {
-        let option_str = match &values[0] {
-            Some(o) => o.as_str(),
-            None => {
-                println!("using default train/test option");
-                default_option.as_str()
-            }
-        };
+    let mut train: OcrTrainTestEnum = Combined;
+    let mut train_bool = false;
+    let mut test: OcrTrainTestEnum = Combined;
+    let mut test_bool = false;
+    let mut debug = false;
+    let mut resolve = String::new();
+    let mut resolve_bool = false;
+    for (a, v) in args_values {
+        if a == "--train" {
+            train = v.as_data().unwrap_or_else(|| Combined);
+            train_bool = true;
+        }
 
-        let data_option = OcrTrainTestEnum::encode(option_str)?;
+        if a == "--test" {
+            test = v.as_data().unwrap_or_else(|| Combined);
+            test_bool = true;
+        }
 
-        result = train_ocr(data_option);
+        if a == "--debug" {
+            debug = v.as_bool().unwrap_or_else(|| false);
+        }
 
-        if args_values.len() == 1 {
-            return result
+        if a == "--resolve" {
+            resolve = match v.as_str() {
+                Some(r) => r,
+                None => return Err("Couldn't get resolve value from input".to_string())
+            };
+            resolve_bool = true;
         }
     }
 
-    match result {
-        Ok(o) => match o {
-            Some(str) => {
-                println!("{}", str);
-            },
+    if train_bool {
+        let _ = match train_ocr(train).map_err(|e| e.to_string())? {
+            Some(r) => {println!("{}", r)}
             None => {}
-        },
-        Err(e) => return Err(e)
-    }
-
-    result = Ok(None);
-
-    if args_values.contains_key("--test") {
-        let option_str = match &values[1] {
-            Some(o) => o.as_str(),
-            None => {
-                println!("using default train/test option");
-                default_option.as_str()
-            }
         };
-
-        let data_option = OcrTrainTestEnum::encode(option_str).map_err(|e| e)?;
-
-       result = test_ocr(data_option);
-        return result
     }
 
-    if args_values.contains_key("--resolve") && !args_values.contains_key("--test") && !args_values.contains_key("--train") {
-        let source = match values[2].clone() {
-            Some(s) => s,
-            None => return Err("No source path set".to_string())
+    if test_bool {
+        let _ = match test_ocr(test).map_err(|e| e.to_string())? {
+            Some(r) => {println!("{}", r)},
+            None => {}
         };
-        return  resolve(source)
     }
 
-    Err("Invalid ocr arguments".to_string())
+    if resolve_bool {
+        let _ = match operate::resolve(resolve, debug).map_err(|e| e.to_string())? {
+            Some(r) => { print!("{}", r);},
+            None => {}
+        };
+    }
+
+    Ok(None)
 }
 
-pub fn handle_exit(_: HashMap<String, String>) -> Result<Option<String>, String> {
+pub fn handle_exit(_: HashMap<&'static str, ValueTypes>) -> Result<Option<String>, String> {
     exit(0);
 }
 
@@ -208,41 +144,48 @@ impl Input {
         
         let commands = Command::get_all();
 
-        let mut args_values: HashMap<String, String> = HashMap::new();
+        let mut args_values: HashMap<&'static str, ValueTypes> = HashMap::new();
         let mut input_result: Result<Input, String> = Err("Not a valid command".to_string());
-
         for command in commands {
             if input_parts[0] == command.name {
                 input_parts.remove(0);
+                let args_types = match command.args_types.clone() {
+                    Some(a) => a,
+                    None => {return Ok(Input::new(command, None));}
+                };
 
-                if command.args.is_none() {
-                    return Ok(Input::new(command, args_values));
-                }
-                else {
-                    let mut i = 0;
-                   while i < input_parts.len() {
-                        for (arg, has_value) in command.args.clone().unwrap() {
-                            if arg == input_parts[i] {
-                                if has_value {
-                                    if i+1 >= input_parts.len() {
-                                        return Err(format!("Value for '{}' not found", arg).to_string());
-                                    }
+                let mut i = 0;
+                while i < input_parts.len() {
+                    let value: ValueTypes;
+                    let mut matched = false;
+                    for (arg, value_type) in &args_types {
+                        if *arg == input_parts[i] {
 
-                                    args_values.insert(arg.to_string(), input_parts[i+1].trim_matches('"').to_string());
-                                    i += 1;
-                                    break;
-                                }
-                                else {
-                                    args_values.insert(arg.to_string(), "".to_string());
-                                    break;
-                                }
+                            if i + 1 >= input_parts.len() {
+                                return Err(format!("Value for arg {} not found", arg))
                             }
+
+                            match value_type {
+                                ValueTypes::Int(None) => {value = ValueTypes::Int(Some(input_parts[i+1].parse::<i64>().map_err(|e| e.to_string())?))},
+                                ValueTypes::Bool(None) => {value = ValueTypes::Bool(Some(input_parts[i+1].parse::<bool>().map_err(|e| e.to_string())?))},
+                                ValueTypes::String(None) => {value = ValueTypes::String(Some(input_parts[i+1].to_string()))},
+                                ValueTypes::Data(None) => {value = ValueTypes::Data(Some(OcrTrainTestEnum::encode(input_parts[i+1]).map_err(|e| e.to_string())?))}
+                                _ => {return Err(format!("Could not parse value {} for args {}", input_parts[i+1], arg))}
+                            }
+
+                            args_values.insert(arg, value);
+                            i+=2;
+                            matched = true;
+                            break
                         }
-                       i += 1;
+                    }
+                    if !matched {
+                        println!("Ignoring unknown arg {}", input_parts[i]);
+                        i += 1;
                     }
                 }
 
-                input_result = Ok(Input::new(command, args_values.clone()));
+                input_result = Ok(Input::new(command, Some(args_values)));
                 break;
             }
         }
