@@ -8,6 +8,41 @@ use crate::{emnist, handle};
 use crate::emnist::Source;
 use crate::models::OcrTrainTestEnum::{Captcha, Combined, Emnist};
 
+pub trait ArgsHandler {
+    fn get_str(&self, key: &str) -> Option<String>;
+    fn get_int(&self, key: &str) -> Option<i64>;
+    fn get_bool(&self, key: &str) -> bool;
+    fn get_data(&self, key: &str) -> Option<OcrTrainTestEnum>;
+
+    fn require_str(&self, key: &str) -> Result<String, String>;
+    fn require_int(&self, key: &str) -> Result<i64, String>;
+    fn require_data(&self, key: &str) -> Result<emnist::Source, String>;
+}
+
+impl ArgsHandler for HashMap<&'static str, ValueTypes> {
+    fn get_str(&self, key: &str) -> Option<String> {
+        self.get(key).and_then(|v| v.as_str())
+    }
+    fn get_int(&self, key: &str) -> Option<i64> {
+        self.get(key).and_then(|v| v.as_int())
+    }
+    fn get_bool(&self, key: &str) -> bool {
+        self.get(key).and_then(|v| v.as_bool()).unwrap_or(false)
+    }
+    fn get_data(&self, key: &str) -> Option<OcrTrainTestEnum> {
+        self.get(key).and_then(|v| v.as_data())
+    }
+    fn require_str(&self, key: &str) -> Result<String, String> {
+        self.get_str(key).ok_or_else(|| format!("{} missing", key))
+    }
+    fn require_int(&self, key: &str) -> Result<i64, String> {
+        self.get_int(key).ok_or_else(|| format!("{} missing", key))
+    }
+    fn require_data(&self, key: &str) -> Result<Source, String> {
+        self.get_data(key).ok_or_else(|| format!("{} missing", key))?.to_data_source()
+    }
+}
+
 #[derive(Clone)]
 pub struct Command {
     pub name: &'static str,
@@ -411,7 +446,7 @@ impl Command {
         let mut color_args: HashMap<&'static str, ValueTypes> = HashMap::new();
         color_args.insert("--source", ValueTypes::String(None));
         color_args.insert("--output", ValueTypes::String(None));
-        color_args.insert("--all", ValueTypes::Bool(None));
+        color_args.insert("--all", ValueTypes::Int(None));
         color_args.insert("-r", ValueTypes::Int(None));
         color_args.insert("-g", ValueTypes::Int(None));
         color_args.insert("-b", ValueTypes::Int(None));
@@ -423,6 +458,8 @@ impl Command {
         ocr_args.insert("--resolve", ValueTypes::String(None));
         ocr_args.insert("--debug", ValueTypes::Bool(None));
         let ocr = Command::new("ocr", "", Some(ocr_args), handle::handle_ocr);
+        
+        let clear = Command::new("clear", "", None, handle::handle_clear);
 
         let mut commands = Vec::new();
 
@@ -431,6 +468,7 @@ impl Command {
         commands.push(color);
         commands.push(ocr);
         commands.push(exit);
+        commands.push(clear);
 
         commands
     }
@@ -452,4 +490,3 @@ impl Command {
         Command{name, description, args_types, handle_fn }
     }
 }
-

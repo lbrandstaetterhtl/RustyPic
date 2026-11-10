@@ -9,7 +9,7 @@ mod emnist;
 fn main() {
     let config = AppConfig::load().expect("failed to load config");
     config.save().expect("failed to load config properly");
-
+    clearscreen::clear().expect("failed to clear screen");
     loop {
         print!("\n>: ");
         std::io::stdout().flush().unwrap();

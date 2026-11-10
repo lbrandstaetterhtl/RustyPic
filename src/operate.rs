@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use candle_core::{Device, Tensor};
 use candle_nn::ops::softmax;
 use candle_nn::Optimizer;
-use image::{imageops, DynamicImage, GrayImage, ImageBuffer, Luma, Rgb, RgbImage};
+use image::{imageops, DynamicImage, GrayImage, ImageBuffer, Luma, Rgb, RgbImage, GenericImageView, Rgba, GenericImage, ColorType};
 use imageproc::filter::median_filter;
 use crate::models::{AppConfig, BBox, OcrTrainTestEnum, CNN};
 use crate::emnist;
@@ -489,4 +489,56 @@ fn crop_letter(src: &GrayImage, b: &BBox, pad: u32) -> Option<GrayImage> {
     }
 
     Some(imageops::crop_imm(src, left, top, right - left, bottom - top).to_image())
+}
+
+pub fn color(source: String, output: String, all: Option<i64>, r: Option<i64>, g: Option<i64>, b: Option<i64>) -> Result<Option<String>, String> {
+    let image = load_image(source).map_err(|e| e)?;
+
+    let result;
+    if !all.is_none() {
+        if r.is_some() {
+            println!("ignoring value for red '{}' because --all is set", r.unwrap())
+        }
+        if g.is_some() {
+            println!("ignoring value for green '{}' because --all is set", g.unwrap())
+        }
+        if b.is_some() {
+            println!("ignoring value for blue '{}' because --all is set", b.unwrap())
+        }
+
+
+        let value = all.unwrap();
+        result = change_color(image, value, value, value).map_err(|e| e)?;
+    }
+    else {
+        let red = r.unwrap_or(0);
+        let green = g.unwrap_or(0);
+        let blue = b.unwrap_or(0);
+        result = change_color(image, red, green, blue).map_err(|e| e)?;
+    }
+
+    result.save(&output).map_err(|e| e.to_string())?;
+
+    Ok(Some(format!("Saved color changed image to {}", output)))
+}
+
+fn change_color(image: DynamicImage, red: i64, green: i64, blue: i64) -> Result<DynamicImage, String> {
+    let src = image.to_rgba8();
+    let mut result = image::RgbaImage::new(src.width(), src.height());
+
+    let dr = red.clamp(-255, 255) as i16;
+    let dg = green.clamp(-255, 255) as i16;
+    let db = blue.clamp(-255, 255) as i16;
+
+    for (x, y, p) in src.enumerate_pixels() {
+        let [pr, pg, pb, pa] = p.0;
+
+        let r = if dr == 255 { 255 - pr } else { (pr as i16 + dr).clamp(0, 255) as u8 };
+        let g = if dg == 255 { 255 - pg } else { (pg as i16 + dg).clamp(0, 255) as u8 };
+        let b = if db == 255 { 255 - pb } else { (pb as i16 + db).clamp(0, 255) as u8 };
+
+        result.put_pixel(x, y, Rgba([r, g, b, pa]));
+    }
+
+    Ok(DynamicImage::ImageRgba8(result))
 }

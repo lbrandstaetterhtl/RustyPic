@@ -1,9 +1,8 @@
 ﻿use std::collections::HashMap;
 use std::process::exit;
-use crate::models::{Input, Command, OcrTrainTestEnum, ValueTypes};
-use crate::models::OcrTrainTestEnum::Combined;
+use crate::models::{Input, Command, OcrTrainTestEnum, ValueTypes, ArgsHandler};
 use crate::operate;
-use crate::operate::{invert, grayscale, train_ocr, test_ocr};
+use crate::operate::{invert, grayscale, train_ocr, test_ocr, color};
 
 pub fn base(input_str: String) -> Result<Option<String>, String> {
     let parts: Vec<String> = shell_words::split(input_str.trim())
@@ -26,106 +25,47 @@ pub fn base(input_str: String) -> Result<Option<String>, String> {
 }
 
 pub fn handle_grayscale(args_values: HashMap<&'static str, ValueTypes>) -> Result<Option<String>, String> {
-    let mut source = "".to_string();
-    let mut output = "".to_string();
-
-    for (a, v) in args_values {
-        if a == "--source" {
-            source = match v.as_str() {
-                Some(s) => s,
-                None => return Err("Couldn't get source value from input".to_string())
-            };
-        }
-        else if a == "--output" {
-            output = match v.as_str() {
-                Some(s) => s,
-                None => return Err("Couldn't get output value from input".to_string())
-            }
-        }
-    }
+    let source = args_values.require_str("--source").map_err(|e| e)?;
+    let output = args_values.require_str("--output").map_err(|e| e)?;
 
     grayscale(source, output)
 }
 
 pub fn handle_invert(args_values:HashMap<&'static str, ValueTypes>) -> Result<Option<String>, String> {
-    let mut source = "".to_string();
-    let mut output = "".to_string();
-
-    for (a, v) in args_values {
-        if a == "--source" {
-            source = match v.as_str() {
-                Some(s) => s,
-                None => return Err("Couldn't get source value from input".to_string())
-            };
-        }
-        else if a == "--output" {
-            output = match v.as_str() {
-                Some(s) => s,
-                None => return Err("Couldn't get output value from input".to_string())
-            }
-        }
-    }
+    let source = args_values.require_str("--source").map_err(|e| e)?;
+    let output = args_values.require_str("--output").map_err(|e| e)?;
 
     invert(source, output)
 }
 
 pub fn handle_color(args_values: HashMap<&'static str, ValueTypes>) -> Result<Option<String>, String> {;
+    let source = args_values.require_str("--source").map_err(|e| e)?;
+    let output = args_values.require_str("--output").map_err(|e| e)?;
 
-    panic!("not implemented");
+    let all = args_values.get_int("--all");
+    let red = args_values.get_int("-r");
+    let green = args_values.get_int("-g");
+    let blue = args_values.get_int("-b");
+
+    color(source, output, all, red, green, blue)
 }
 
 pub fn handle_ocr(args_values: HashMap<&'static str, ValueTypes>) -> Result<Option<String>, String> {
+    let train = args_values.get_data("--train");
+    let test = args_values.get_data("--test");
+    let debug = args_values.get_bool("--debug");
+    let resolve = args_values.get_str("--resolve");
 
-    let mut train: OcrTrainTestEnum = Combined;
-    let mut train_bool = false;
-    let mut test: OcrTrainTestEnum = Combined;
-    let mut test_bool = false;
-    let mut debug = false;
-    let mut resolve = String::new();
-    let mut resolve_bool = false;
-    for (a, v) in args_values {
-        if a == "--train" {
-            train = v.as_data().unwrap_or_else(|| Combined);
-            train_bool = true;
-        }
-
-        if a == "--test" {
-            test = v.as_data().unwrap_or_else(|| Combined);
-            test_bool = true;
-        }
-
-        if a == "--debug" {
-            debug = v.as_bool().unwrap_or_else(|| false);
-        }
-
-        if a == "--resolve" {
-            resolve = match v.as_str() {
-                Some(r) => r,
-                None => return Err("Couldn't get resolve value from input".to_string())
-            };
-            resolve_bool = true;
-        }
+    if let Some(t) = train {
+        if let Some(r) = train_ocr(t).map_err(|e| e)? { println!("{}", r); }
     }
 
-    if train_bool {
-        let _ = match train_ocr(train).map_err(|e| e.to_string())? {
-            Some(r) => {println!("{}", r)}
-            None => {}
-        };
+    if let Some(t) = test {
+        if let Some(r) = test_ocr(t).map_err(|e| e)? { println!("{}",r ); }
     }
 
-    if test_bool {
-        let _ = match test_ocr(test).map_err(|e| e.to_string())? {
-            Some(r) => {println!("{}", r)},
-            None => {}
-        };
-    }
-
-    if resolve_bool {
-        let _ = match operate::resolve(resolve, debug).map_err(|e| e.to_string())? {
-            Some(r) => { print!("{}", r);},
-            None => {}
-        };
+    if let Some(r) = resolve {
+        if let Some(rr) = operate::resolve(r, debug).map_err(|e| e)? { println!("{}", rr); }
     }
 
     Ok(None)
@@ -133,6 +73,12 @@ pub fn handle_ocr(args_values: HashMap<&'static str, ValueTypes>) -> Result<Opti
 
 pub fn handle_exit(_: HashMap<&'static str, ValueTypes>) -> Result<Option<String>, String> {
     exit(0);
+}
+
+pub fn handle_clear(_: HashMap<&'static str, ValueTypes>) -> Result<Option<String>, String> {
+    clearscreen::clear().map_err(|e| e.to_string())?;
+
+    Ok(None)
 }
 
 impl Input {
@@ -160,21 +106,47 @@ impl Input {
                     let mut matched = false;
                     for (arg, value_type) in &args_types {
                         if *arg == input_parts[i] {
-
-                            if i + 1 >= input_parts.len() {
-                                return Err(format!("Value for arg {} not found", arg))
-                            }
-
+                            let mut consumed_value = false;
                             match value_type {
-                                ValueTypes::Int(None) => {value = ValueTypes::Int(Some(input_parts[i+1].parse::<i64>().map_err(|e| e.to_string())?))},
-                                ValueTypes::Bool(None) => {value = ValueTypes::Bool(Some(input_parts[i+1].parse::<bool>().map_err(|e| e.to_string())?))},
-                                ValueTypes::String(None) => {value = ValueTypes::String(Some(input_parts[i+1].to_string()))},
-                                ValueTypes::Data(None) => {value = ValueTypes::Data(Some(OcrTrainTestEnum::encode(input_parts[i+1]).map_err(|e| e.to_string())?))}
+                                ValueTypes::Int(None) => {
+                                    if i + 1 >= input_parts.len() || input_parts[i+1].starts_with("--") {
+                                        return Err(format!("Value for arg {} not found", arg))
+                                    }
+
+                                    value = ValueTypes::Int(Some(input_parts[i+1].parse::<i64>().map_err(|e| e.to_string())?));
+                                    consumed_value = true;
+                                },
+                                ValueTypes::Bool(None) => {
+                                    if i + 1 >= input_parts.len() || input_parts[i+1].starts_with("--") {
+                                        value = ValueTypes::Bool(Some(true));
+                                        consumed_value = false;
+                                    }
+                                    else {
+                                        value = ValueTypes::Bool(Some(input_parts[i + 1].parse::<bool>().map_err(|e| e.to_string())?));
+                                        consumed_value = true;
+                                    }
+                                },
+                                ValueTypes::String(None) => {
+                                    if i + 1 >= input_parts.len() || input_parts[i+1].starts_with("--") {
+                                        return Err(format!("Value for arg {} not found", arg))
+                                    }
+
+                                    value = ValueTypes::String(Some(input_parts[i+1].to_string()));
+                                    consumed_value = true;
+                                },
+                                ValueTypes::Data(None) => {
+                                    if i + 1 >= input_parts.len() || input_parts[i+1].starts_with("--") {
+                                        return Err(format!("Value for arg {} not found", arg))
+                                    }
+
+                                    value = ValueTypes::Data(Some(OcrTrainTestEnum::encode(input_parts[i+1]).map_err(|e| e.to_string())?));
+                                    consumed_value = true;
+                                }
                                 _ => {return Err(format!("Could not parse value {} for args {}", input_parts[i+1], arg))}
                             }
 
                             args_values.insert(arg, value);
-                            i+=2;
+                            i+= if consumed_value {2} else {1};
                             matched = true;
                             break
                         }
