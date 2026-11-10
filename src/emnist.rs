@@ -59,6 +59,24 @@ pub enum Source {
     Combined,
 }
 
+impl Source {
+    pub fn parse(str: String) -> Result<Source, String> {
+        if str.eq("emnist") {
+            return Ok(Self::Emnist)
+        }
+        
+        if str.eq("captcha") {
+            return Ok(Self::Captcha)
+        }
+        
+        if str.eq("combined") {
+            return  Ok(Self::Combined)
+        }
+        
+        Err(format!("couldnt parse {} to a data source", str))
+    }
+}
+
 struct DatasetFiles {
     label: &'static str,
     train_images: &'static str,

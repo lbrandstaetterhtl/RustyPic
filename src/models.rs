@@ -6,17 +6,16 @@ use candle_nn::{Conv2d, Conv2dConfig, Linear, VarBuilder, conv2d, linear, VarMap
 use serde::{Deserialize, Serialize};
 use crate::{emnist, handle};
 use crate::emnist::Source;
-use crate::models::OcrTrainTestEnum::{Captcha, Combined, Emnist};
 
 pub trait ArgsHandler {
     fn get_str(&self, key: &str) -> Option<String>;
     fn get_int(&self, key: &str) -> Option<i64>;
     fn get_bool(&self, key: &str) -> bool;
-    fn get_data(&self, key: &str) -> Option<OcrTrainTestEnum>;
+    fn get_data(&self, key: &str) -> Option<Source>;
 
     fn require_str(&self, key: &str) -> Result<String, String>;
     fn require_int(&self, key: &str) -> Result<i64, String>;
-    fn require_data(&self, key: &str) -> Result<emnist::Source, String>;
+    fn require_data(&self, key: &str) -> Result<Source, String>;
 }
 
 impl ArgsHandler for HashMap<&'static str, ValueTypes> {
@@ -29,7 +28,7 @@ impl ArgsHandler for HashMap<&'static str, ValueTypes> {
     fn get_bool(&self, key: &str) -> bool {
         self.get(key).and_then(|v| v.as_bool()).unwrap_or(false)
     }
-    fn get_data(&self, key: &str) -> Option<OcrTrainTestEnum> {
+    fn get_data(&self, key: &str) -> Option<Source> {
         self.get(key).and_then(|v| v.as_data())
     }
     fn require_str(&self, key: &str) -> Result<String, String> {
@@ -39,7 +38,7 @@ impl ArgsHandler for HashMap<&'static str, ValueTypes> {
         self.get_int(key).ok_or_else(|| format!("{} missing", key))
     }
     fn require_data(&self, key: &str) -> Result<Source, String> {
-        self.get_data(key).ok_or_else(|| format!("{} missing", key))?.to_data_source()
+        self.get_data(key).ok_or_else(|| format!("{} missing", key))
     }
 }
 
@@ -56,7 +55,7 @@ pub enum ValueTypes {
     Int(Option<i64>),
     Bool(Option<bool>),
     String(Option<String>),
-    Data(Option<OcrTrainTestEnum>)
+    Data(Option<Source>)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -115,48 +114,8 @@ impl ValueTypes {
     pub fn as_str(&self) -> Option<String> {
         if let ValueTypes::String(Some(s)) = self { Some(s.clone()) } else { None }
     }
-    pub fn as_data(&self) -> Option<OcrTrainTestEnum> {
-        if let ValueTypes::Data(Some(d)) = self { Some(d.clone()) } else { None }
-    }
-}
-
-#[derive(Clone)]
-pub enum OcrTrainTestEnum
-{
-    Emnist,
-    Captcha,
-    Combined
-}
-
-impl OcrTrainTestEnum {
-    pub fn encode(str: &str) -> Result<Self, String> {
-        if str.to_lowercase().eq("emnist") {
-            return Ok(Emnist)
-        }
-        else if str.to_lowercase().eq("captcha") {
-            return Ok(Captcha)
-        }
-        else if str.to_lowercase().eq("combined") {
-            return Ok(Combined)
-        }
-
-        Err(format!("Could not convert {} to any train/test option", str))
-    }
-
-    pub fn decode(&self) -> Result<String, String> {
-        match self {
-            Emnist => Ok("emnist".to_string()),
-            Captcha => Ok("captcha".to_string()),
-            Combined => Ok("combined".to_string())
-        }
-    }
-
-    pub fn to_data_source(&self) -> Result<emnist::Source, String> {
-        match self {
-            Emnist => Ok(Source::Emnist),
-            Captcha => Ok(Source::Captcha),
-            Combined => Ok(Source::Combined)
-        }
+    pub fn as_data(&self) -> Option<Source> {
+        if let ValueTypes::Data(Some(d)) = self { Some(*d) } else { None }
     }
 }
 
@@ -447,9 +406,9 @@ impl Command {
         color_args.insert("--source", ValueTypes::String(None));
         color_args.insert("--output", ValueTypes::String(None));
         color_args.insert("--all", ValueTypes::Int(None));
-        color_args.insert("-r", ValueTypes::Int(None));
-        color_args.insert("-g", ValueTypes::Int(None));
-        color_args.insert("-b", ValueTypes::Int(None));
+        color_args.insert("--r", ValueTypes::Int(None));
+        color_args.insert("--g", ValueTypes::Int(None));
+        color_args.insert("--b", ValueTypes::Int(None));
         let color = Command::new("color", "", Some(color_args), handle::handle_color);
 
         let mut ocr_args: HashMap<&'static str, ValueTypes> = HashMap::new();

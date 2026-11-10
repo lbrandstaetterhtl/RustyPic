@@ -5,7 +5,7 @@ use candle_nn::ops::softmax;
 use candle_nn::Optimizer;
 use image::{imageops, DynamicImage, GrayImage, ImageBuffer, Luma, Rgb, RgbImage, GenericImageView, Rgba, GenericImage, ColorType};
 use imageproc::filter::median_filter;
-use crate::models::{AppConfig, BBox, OcrTrainTestEnum, CNN};
+use crate::models::{AppConfig, BBox, CNN};
 use crate::emnist;
 use crate::emnist::{Emnist};
 use imageproc::region_labelling::{connected_components, Connectivity};
@@ -48,7 +48,7 @@ pub fn invert(source_path: String, output_path: String) -> Result<Option<String>
     }
 }
 
-pub fn test_ocr(option: OcrTrainTestEnum) -> Result<Option<String>, String> {
+pub fn test_ocr(option: emnist::Source) -> Result<Option<String>, String> {
     let app_config = AppConfig::load().map_err(|error| "[app_config]".to_string() + error.as_str())?;
     let device = app_config.device()?;
     let data = load_data(option).map_err(|error| "[data]".to_string() + error.as_str())?;
@@ -209,7 +209,7 @@ fn to_emnist(crop: &GrayImage) -> GrayImage {
     out
 }
 
-pub fn train_ocr(option: OcrTrainTestEnum) -> Result<Option<String>, String> {
+pub fn train_ocr(option: emnist::Source) -> Result<Option<String>, String> {
 
     let data = match load_data(option) {
         Ok(data) => data,
@@ -324,14 +324,14 @@ fn load_image(path: String) -> Result<DynamicImage, String> {
     Ok(img)
 }
 
-fn load_data(option: OcrTrainTestEnum) -> Result<Emnist, String> {
+fn load_data(option: emnist::Source) -> Result<Emnist, String> {
     let config_dir = match AppConfig::get_config_dir() {
         Ok(config_dir) => config_dir,
         Err(error) => return Err(error.to_string())
     };
     let emnist_dir = Path::new(&config_dir).join("emnist");
 
-    let data = match emnist::load_from(&emnist_dir, option.to_data_source().map_err(|e| e)?, None) {
+    let data = match emnist::load_from(&emnist_dir, option, None) {
         Ok(data) => data,
         Err(error) => return Err(error.to_string())
     };

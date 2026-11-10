@@ -1,6 +1,7 @@
 ﻿use std::collections::HashMap;
 use std::process::exit;
-use crate::models::{Input, Command, OcrTrainTestEnum, ValueTypes, ArgsHandler};
+use crate::emnist::Source;
+use crate::models::{Input, Command, ValueTypes, ArgsHandler};
 use crate::operate;
 use crate::operate::{invert, grayscale, train_ocr, test_ocr, color};
 
@@ -88,80 +89,69 @@ impl Input {
             return Err("No command given".to_string());
         }
         
-        let commands = Command::get_all();
+        let command = Command::get(input_parts[0].to_lowercase().as_str())?;
+        input_parts.remove(0);
 
         let mut args_values: HashMap<&'static str, ValueTypes> = HashMap::new();
-        let mut input_result: Result<Input, String> = Err("Not a valid command".to_string());
-        for command in commands {
-            if input_parts[0] == command.name {
-                input_parts.remove(0);
-                let args_types = match command.args_types.clone() {
-                    Some(a) => a,
-                    None => {return Ok(Input::new(command, None));}
-                };
+        let args_types = match command.args_types.clone() {
+            Some(a) => a,
+            None => {return Ok(Input::new(command, None));}
+        };
 
-                let mut i = 0;
-                while i < input_parts.len() {
-                    let value: ValueTypes;
-                    let mut matched = false;
-                    for (arg, value_type) in &args_types {
-                        if *arg == input_parts[i] {
-                            let mut consumed_value = false;
-                            match value_type {
-                                ValueTypes::Int(None) => {
-                                    if i + 1 >= input_parts.len() || input_parts[i+1].starts_with("--") {
-                                        return Err(format!("Value for arg {} not found", arg))
-                                    }
+        let mut i = 0;
+        while i < input_parts.len() {
+            let value: ValueTypes;
 
-                                    value = ValueTypes::Int(Some(input_parts[i+1].parse::<i64>().map_err(|e| e.to_string())?));
-                                    consumed_value = true;
-                                },
-                                ValueTypes::Bool(None) => {
-                                    if i + 1 >= input_parts.len() || input_parts[i+1].starts_with("--") {
-                                        value = ValueTypes::Bool(Some(true));
-                                        consumed_value = false;
-                                    }
-                                    else {
-                                        value = ValueTypes::Bool(Some(input_parts[i + 1].parse::<bool>().map_err(|e| e.to_string())?));
-                                        consumed_value = true;
-                                    }
-                                },
-                                ValueTypes::String(None) => {
-                                    if i + 1 >= input_parts.len() || input_parts[i+1].starts_with("--") {
-                                        return Err(format!("Value for arg {} not found", arg))
-                                    }
-
-                                    value = ValueTypes::String(Some(input_parts[i+1].to_string()));
-                                    consumed_value = true;
-                                },
-                                ValueTypes::Data(None) => {
-                                    if i + 1 >= input_parts.len() || input_parts[i+1].starts_with("--") {
-                                        return Err(format!("Value for arg {} not found", arg))
-                                    }
-
-                                    value = ValueTypes::Data(Some(OcrTrainTestEnum::encode(input_parts[i+1]).map_err(|e| e.to_string())?));
-                                    consumed_value = true;
-                                }
-                                _ => {return Err(format!("Could not parse value {} for args {}", input_parts[i+1], arg))}
-                            }
-
-                            args_values.insert(arg, value);
-                            i+= if consumed_value {2} else {1};
-                            matched = true;
-                            break
-                        }
-                    }
-                    if !matched {
-                        println!("Ignoring unknown arg {}", input_parts[i]);
-                        i += 1;
-                    }
+            let (arg, value_type) = match args_types.get_key_value(input_parts[i]) {
+                Some((a, v)) => (a, v),
+                None => {
+                    println!("Ignoring unknown arg {}", input_parts[i]);
+                    i += 1;
+                    continue;
                 }
+            };
 
-                input_result = Ok(Input::new(command, Some(args_values)));
-                break;
+            let mut consumed_value = false;
+            match value_type {
+                ValueTypes::Int(None) => {
+                    if i + 1 >= input_parts.len() || input_parts[i+1].starts_with("--") {
+                        return Err(format!("Value for arg {} not found", arg))
+                    }
+
+                    value = ValueTypes::Int(Some(input_parts[i+1].parse::<i64>().map_err(|e| e.to_string())?));
+                    consumed_value = true;
+                },
+                ValueTypes::Bool(None) => {
+                    if i + 1 >= input_parts.len() || input_parts[i+1].starts_with("--") {
+                         value = ValueTypes::Bool(Some(true));
+                    }
+                    else {
+                        value = ValueTypes::Bool(Some(input_parts[i + 1].parse::<bool>().map_err(|e| e.to_string())?));
+                        consumed_value = true;
+                    }
+                },
+                ValueTypes::String(None) => {
+                    if i + 1 >= input_parts.len() || input_parts[i+1].starts_with("--") {
+                        return Err(format!("Value for arg {} not found", arg))
+                    }
+
+                    value = ValueTypes::String(Some(input_parts[i+1].to_string()));
+                    consumed_value = true;
+                },
+                ValueTypes::Data(None) => {
+                    if i + 1 >= input_parts.len() || input_parts[i+1].starts_with("--") {
+                        return Err(format!("Value for arg {} not found", arg))
+                    }
+
+                    value = ValueTypes::Data(Some(Source::parse(input_parts[i+1].to_string())?));
+                    consumed_value = true;
+                }
+                _ => {return Err(format!("Could not parse value {} for args {}", input_parts[i+1], arg))}
             }
+            args_values.insert(arg, value);
+            i+= if consumed_value {2} else {1};
         }
 
-        input_result
+        Ok(Input::new(command, Some(args_values)))
     }
 }
