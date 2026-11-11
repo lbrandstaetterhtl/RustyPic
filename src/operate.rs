@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use candle_core::{Device, Tensor};
 use candle_nn::ops::softmax;
 use candle_nn::Optimizer;
-use image::{imageops, DynamicImage, GrayImage, ImageBuffer, Luma, Rgb, RgbImage, GenericImageView, Rgba, GenericImage, ColorType};
+use image::{imageops, DynamicImage, GrayImage, ImageBuffer, Luma, Rgb, RgbImage, Rgba};
 use imageproc::filter::median_filter;
 use crate::models::{AppConfig, BBox, CNN};
 use crate::emnist;

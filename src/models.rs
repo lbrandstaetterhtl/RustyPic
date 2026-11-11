@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use candle_core::{DType, Device, Module, Tensor};
 use candle_nn::{Conv2d, Conv2dConfig, Linear, VarBuilder, conv2d, linear, VarMap};
 use serde::{Deserialize, Serialize};
-use crate::{emnist, handle};
+use crate::handle;
 use crate::emnist::Source;
 
 pub trait ArgsHandler {
@@ -396,15 +396,14 @@ impl Command {
         let mut default_args: HashMap<&'static str, ValueTypes> = HashMap::new();
         default_args.insert("--source", ValueTypes::String(None));
         default_args.insert("--output", ValueTypes::String(None));
+
         let grayscale = Command::new("grayscale", "", Some(default_args.clone()), handle::handle_grayscale);
 
         let exit = Command::new("exit", "", None, handle::handle_exit);
 
-        let invert = Command::new("invert", "", Some(default_args), handle::handle_invert);
+        let invert = Command::new("invert", "", Some(default_args.clone()), handle::handle_invert);
 
-        let mut color_args: HashMap<&'static str, ValueTypes> = HashMap::new();
-        color_args.insert("--source", ValueTypes::String(None));
-        color_args.insert("--output", ValueTypes::String(None));
+        let mut color_args: HashMap<&'static str, ValueTypes> = default_args;
         color_args.insert("--all", ValueTypes::Int(None));
         color_args.insert("--r", ValueTypes::Int(None));
         color_args.insert("--g", ValueTypes::Int(None));
@@ -417,7 +416,7 @@ impl Command {
         ocr_args.insert("--resolve", ValueTypes::String(None));
         ocr_args.insert("--debug", ValueTypes::Bool(None));
         let ocr = Command::new("ocr", "", Some(ocr_args), handle::handle_ocr);
-        
+
         let clear = Command::new("clear", "", None, handle::handle_clear);
 
         let mut commands = Vec::new();
@@ -435,14 +434,10 @@ impl Command {
     pub fn get(name: &str) -> Result<Command, String> {
         let commands = Self::get_all();
 
-        let mut command_result: Result<Command, String> = Err(format!("No such command: {}", name));
-        for command in commands.iter() {
-            if command.name == name {
-                command_result = Ok(command.clone())
-            }
+        match commands.iter().find(|c| c.name == name) {
+            Some(c) => Ok(c.clone()),
+            None => Err(format!("couldn't find command with name '{}'", name))
         }
-
-        command_result
     }
 
     fn new(name: &'static str, description: &'static str, args_types: Option<HashMap<&'static str, ValueTypes>>, handle_fn: fn(args_values: HashMap<&'static str, ValueTypes>) -> Result<Option<String>, String>) -> Command {

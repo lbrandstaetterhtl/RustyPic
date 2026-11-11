@@ -2,8 +2,7 @@
 use std::process::exit;
 use crate::emnist::Source;
 use crate::models::{Input, Command, ValueTypes, ArgsHandler};
-use crate::operate;
-use crate::operate::{invert, grayscale, train_ocr, test_ocr, color};
+use crate::operate::{invert, grayscale, train_ocr, test_ocr, color, resolve};
 
 pub fn base(input_str: String) -> Result<Option<String>, String> {
     let parts: Vec<String> = shell_words::split(input_str.trim())
@@ -39,7 +38,7 @@ pub fn handle_invert(args_values:HashMap<&'static str, ValueTypes>) -> Result<Op
     invert(source, output)
 }
 
-pub fn handle_color(args_values: HashMap<&'static str, ValueTypes>) -> Result<Option<String>, String> {;
+pub fn handle_color(args_values: HashMap<&'static str, ValueTypes>) -> Result<Option<String>, String> {
     let source = args_values.require_str("--source").map_err(|e| e)?;
     let output = args_values.require_str("--output").map_err(|e| e)?;
 
@@ -55,7 +54,7 @@ pub fn handle_ocr(args_values: HashMap<&'static str, ValueTypes>) -> Result<Opti
     let train = args_values.get_data("--train");
     let test = args_values.get_data("--test");
     let debug = args_values.get_bool("--debug");
-    let resolve = args_values.get_str("--resolve");
+    let resolve_source = args_values.get_str("--resolve");
 
     if let Some(t) = train {
         if let Some(r) = train_ocr(t).map_err(|e| e)? { println!("{}", r); }
@@ -65,8 +64,8 @@ pub fn handle_ocr(args_values: HashMap<&'static str, ValueTypes>) -> Result<Opti
         if let Some(r) = test_ocr(t).map_err(|e| e)? { println!("{}",r ); }
     }
 
-    if let Some(r) = resolve {
-        if let Some(rr) = operate::resolve(r, debug).map_err(|e| e)? { println!("{}", rr); }
+    if let Some(r) = resolve_source {
+        if let Some(rr) = resolve(r, debug).map_err(|e| e)? { println!("{}", rr); }
     }
 
     Ok(None)
@@ -91,6 +90,10 @@ impl Input {
         
         let command = Command::get(input_parts[0].to_lowercase().as_str())?;
         input_parts.remove(0);
+
+        if input_parts.len() < 1 {
+            return Err(format!("no arguments given for command '{}'", command.name))
+        }
 
         let mut args_values: HashMap<&'static str, ValueTypes> = HashMap::new();
         let args_types = match command.args_types.clone() {
