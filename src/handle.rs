@@ -43,9 +43,9 @@ pub fn handle_color(args_values: HashMap<&'static str, ValueTypes>) -> Result<Op
     let output = args_values.require_str("--output").map_err(|e| e)?;
 
     let all = args_values.get_int("--all");
-    let red = args_values.get_int("-r");
-    let green = args_values.get_int("-g");
-    let blue = args_values.get_int("-b");
+    let red = args_values.get_int("--r");
+    let green = args_values.get_int("--g");
+    let blue = args_values.get_int("--b");
 
     color(source, output, all, red, green, blue)
 }
